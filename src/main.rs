@@ -1,7 +1,10 @@
 use base64::Engine;
-use ollama_rs::{
-    Ollama,
-    generation::{completion::request::GenerationRequest, images::Image},
+use rig::{
+    client::CompletionClient,
+    completion::{Chat, Completion, Prompt},
+    http_client::ReqwestClient,
+    message::{DocumentSourceKind, Image, ImageDetail, ImageMediaType, Message},
+    providers::openai,
 };
 use softbuffer::{Context, Surface};
 use std::{error::Error, sync::Arc};
@@ -117,7 +120,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                     "Monitor {monitor_index}: pos=({}, {})",
                                     monitor_pos.x, monitor_pos.y
                                 );
-                                println!("Selection (local to monitor): x={x}, y={y}, w={w}, h={h}");
+                                println!(
+                                    "Selection (local to monitor): x={x}, y={y}, w={w}, h={h}"
+                                );
 
                                 for win in &windows {
                                     win.set_visible(false);
@@ -132,7 +137,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                 if let Some(monitor) = target_monitor {
                                     println!("Capturing monitor: {}", monitor.name());
                                     let image = monitor.capture_image().unwrap();
-                                    let cropped = image::imageops::crop_imm(&image, x, y, w, h).to_image();
+                                    let cropped =
+                                        image::imageops::crop_imm(&image, x, y, w, h).to_image();
                                     let mut bytes: Vec<u8> = Vec::new();
                                     cropped
                                         .write_to(
@@ -143,13 +149,34 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
                                     let base64_str =
                                         base64::engine::general_purpose::STANDARD.encode(&bytes);
-                                    println!("data:image/png;base64,{}", base64_str);
-                                    let ollama = Ollama::default();
-                                    let request = GenerationRequest::new(
-                                        "llama3.2-vision".to_string(),
-                                        "Extract text from the image and send it back. Don't translate nor include any other word which is not strictly written in the text of the image"
-                                    ).add_image(Image::from_base64(base64_str));
-                                    let response = ollama.generate(request).await.unwrap().response;
+
+                                    let mut builder =
+                                        openai::CompletionsClient::<ReqwestClient>::builder().api_key("");
+
+                                    builder = builder.base_url("http://localhost:1234");
+
+                                        let client = builder.build().unwrap();
+
+                                       let agent = client
+                                            .agent("allenai/olmocr-2-7b")
+                                            .preamble("describe this image and make sure to include anything notable about it (include text you see in the image)")
+                                            .temperature(0.5)
+                                            .build();
+
+                                        let s = format!("{base64_str}");
+
+                                    let image = Image {
+                                        data: DocumentSourceKind::base64(&s),
+                                        media_type: Some(ImageMediaType::PNG),
+                                        detail:Some(ImageDetail::High),
+                                        ..Default::default()
+                                    };
+
+                                   
+
+                                    // Prompt the agent and print the response
+                                    let response = agent.prompt(image).await.unwrap();
+
                                     println!("Response: {:#?}", response);
                                 } else {
                                     println!("Could not find matching xcap monitor");
