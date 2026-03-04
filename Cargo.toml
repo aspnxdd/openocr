@@ -1,0 +1,12 @@
+[package]
+name = "openocr"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+fs_extra = "1.3.0"
+winit = "0.29"
+softbuffer = "0.4"
+xcap = "0.0.14"
+image = "0.25.9"
+base64 = "0.22.1"
