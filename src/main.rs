@@ -1,4 +1,5 @@
 use base64::Engine;
+use freya::prelude::*;
 use rig::{
     client::CompletionClient,
     completion::Prompt,
@@ -8,7 +9,7 @@ use rig::{
 };
 use selection::{Selection, draw};
 use softbuffer::{Context, Surface};
-use std::{collections::HashMap, error::Error, rc::Rc};
+use std::{borrow::Cow, collections::HashMap, error::Error, rc::Rc};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use winit::{
     dpi::PhysicalPosition,
@@ -30,9 +31,9 @@ struct OcrWindow {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::layer())
-        .init();
+    // tracing_subscriber::registry()
+    //     .with(tracing_subscriber::fmt::layer())
+    //     .init();
 
     let event_loop = EventLoop::new().unwrap();
 
@@ -169,6 +170,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                 });
 
                                 println!("Response: {:#?}", response);
+
+                                launch(LaunchConfig::new().with_window(WindowConfig::new_app(
+                                    MyApp {
+                                        text: response.into(),
+                                    },
+                                )))
                             } else {
                                 println!("Could not find matching xcap monitor");
                             }
@@ -216,4 +223,35 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .unwrap();
 
     Ok(())
+}
+
+struct MyApp {
+    text: Cow<'static, str>,
+}
+
+impl App for MyApp {
+    fn render(&self) -> impl IntoElement {
+        let t = self.text.clone();
+        rect()
+            .padding((30.0))
+            .center()
+            .child(label().text(t.clone()))
+            .child(
+                Button::new()
+                    .on_press(move |_| {
+                        if let Err(e) = Clipboard::set(t.clone().into()) {
+                            eprintln!("Failed to copy to clipboard: {:?}", e);
+                        }
+                    })
+                    .outline()
+                    .child(
+                        rect()
+                            .content(Content::Flex)
+                            .horizontal()
+                            .spacing(20.0)
+                            .child(svg(freya::icons::lucide::copy()))
+                            .child(label().text("Copy").color((0, 0, 0))),
+                    ),
+            )
+    }
 }
