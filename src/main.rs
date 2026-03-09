@@ -10,7 +10,6 @@ use rig::{
 use selection::{Selection, draw};
 use softbuffer::{Context, Surface};
 use std::{borrow::Cow, collections::HashMap, error::Error, rc::Rc};
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use winit::{
     dpi::PhysicalPosition,
     event::{ElementState, Event, MouseButton, WindowEvent},
@@ -38,7 +37,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let event_loop = EventLoop::new().unwrap();
 
     let mut windows: HashMap<WindowId, OcrWindow> =
-        HashMap::from_iter(event_loop.available_monitors().into_iter().map(|monitor| {
+        HashMap::from_iter(event_loop.available_monitors().map(|monitor| {
             let window = WindowBuilder::new()
                 .with_title("Select Region")
                 .with_fullscreen(Some(winit::window::Fullscreen::Borderless(Some(
@@ -68,8 +67,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut cursor_pos = PhysicalPosition::new(0.0_f64, 0.0_f64);
 
     event_loop
-        .run(|event, elwt: &EventLoopWindowTarget<()>| match event {
-            Event::WindowEvent { window_id, event } => {
+        .run(|event, elwt: &EventLoopWindowTarget<()>| {
+            if let Event::WindowEvent { window_id, event } = event {
                 let OcrWindow {
                     selection,
                     surface,
@@ -145,7 +144,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                 let client = builder.build().unwrap();
 
                                 let preamble = "Extract the text from the \
-                                        following image and do not translate it.";
+                                    following image and do not translate it.";
 
                                 let agent = client
                                     .agent("allenai/olmocr-2-7b")
@@ -153,7 +152,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                     .temperature(0.5)
                                     .build();
 
-                                let s = format!("{base64_str}");
+                                let s = base64_str.to_string();
 
                                 let image = Image {
                                     data: DocumentSourceKind::base64(&s),
@@ -206,7 +205,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
                         let mut buffer = surface.buffer_mut().unwrap();
 
-                        draw(&mut buffer, width, height, &selection);
+                        draw(&mut buffer, width, height, selection);
 
                         buffer.present().unwrap();
                     }
@@ -218,7 +217,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     _ => {}
                 }
             }
-            _ => {}
         })
         .unwrap();
 
@@ -233,7 +231,7 @@ impl App for MyApp {
     fn render(&self) -> impl IntoElement {
         let t = self.text.clone();
         rect()
-            .padding((30.0))
+            .padding(30.0)
             .center()
             .child(label().text(t.clone()))
             .child(
