@@ -1,5 +1,4 @@
 use base64::Engine;
-use tracing_subscriber::prelude::*;
 use freya::prelude::*;
 use rig::{
     client::CompletionClient,
@@ -12,6 +11,8 @@ use selection::{Selection, draw};
 use softbuffer::{Context, Surface};
 use std::{collections::HashMap, error::Error, rc::Rc};
 use text_display_window::TextDisplayWindow;
+use tracing::debug;
+use tracing_subscriber::prelude::*;
 use winit::{
     dpi::PhysicalPosition,
     event::{ElementState, Event, MouseButton, WindowEvent},
@@ -112,8 +113,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
                             let monitor_handle = &windows[&window_id].monitor;
                             let monitor_pos = monitor_handle.position();
 
-                            println!("Monitor: pos=({}, {})", monitor_pos.x, monitor_pos.y);
-                            println!("Selection (local to monitor): x={x}, y={y}, w={w}, h={h}");
+                            debug!("Monitor: pos=({}, {})", monitor_pos.x, monitor_pos.y);
+                            debug!("Selection (local to monitor): x={x}, y={y}, w={w}, h={h}");
 
                             for win in windows.values() {
                                 win.window.set_visible(false);
@@ -126,7 +127,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                 .find(|m| m.x() == monitor_pos.x && m.y() == monitor_pos.y);
 
                             if let Some(monitor) = target_monitor {
-                                println!("Capturing monitor: {}", monitor.name());
+                                debug!("Capturing monitor: {}", monitor.name());
                                 let image = monitor.capture_image().unwrap();
                                 let cropped =
                                     image::imageops::crop_imm(&image, x, y, w, h).to_image();
@@ -172,7 +173,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                         .block_on(async { agent.prompt(image).await.unwrap() })
                                 });
 
-                                println!("Response: {:#?}", response);
+                                debug!("Response: {:#?}", response);
 
                                 launch(LaunchConfig::new().with_window(WindowConfig::new_app(
                                     TextDisplayWindow {
@@ -180,7 +181,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                     },
                                 )))
                             } else {
-                                println!("Could not find matching xcap monitor");
+                                debug!("Could not find matching xcap monitor");
                             }
                         }
 
@@ -191,7 +192,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         if event.logical_key
                             == winit::keyboard::Key::Named(winit::keyboard::NamedKey::Escape)
                         {
-                            println!("Cancelled");
+                            debug!("Cancelled");
                             elwt.exit();
                         }
                     }
