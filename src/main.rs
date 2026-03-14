@@ -1,4 +1,5 @@
 use base64::Engine;
+use clap::Parser;
 use freya::prelude::*;
 use rig::{
     client::CompletionClient,
@@ -11,7 +12,6 @@ use selection::{Selection, draw};
 use softbuffer::{Context, Surface};
 use std::{collections::HashMap, error::Error, rc::Rc};
 use text_display_window::TextDisplayWindow;
-use tracing::debug;
 use tracing_subscriber::prelude::*;
 use winit::{
     dpi::PhysicalPosition,
@@ -32,12 +32,39 @@ struct OcrWindow {
     window: Rc<Window>,
 }
 
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    /// The model to use for OCR (default: allenai/olmocr-2-7b)
+    #[arg(short, long)]
+    model: Option<String>,
+
+    /// The base URL of the OpenAI-compatible API (default: http://localhost:1234/v1)
+    #[arg(short, long)]
+    url: Option<String>,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    #[cfg(debug_assertions)]
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::layer())
-        .init();
+    // #[cfg(debug_assertions)]
+    // tracing_subscriber::registry()
+    //     .with(tracing_subscriber::fmt::layer())
+    //     .init();
+
+    let args = Args::parse();
+
+    let mut url = "http://localhost:1234/v1".to_string();
+    if let Some(u) = args.url {
+        url = u;
+    }
+
+    let mut model = "allenai/olmocr-2-7b".to_string();
+    if let Some(m) = args.model {
+        model = m;
+    }
+
+    dbg!("Using model: {}", &model);
+    dbg!("Using API URL: {}", &url);
 
     let event_loop = EventLoop::new().unwrap();
 
@@ -113,8 +140,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
                             let monitor_handle = &windows[&window_id].monitor;
                             let monitor_pos = monitor_handle.position();
 
-                            debug!("Monitor: pos=({}, {})", monitor_pos.x, monitor_pos.y);
-                            debug!("Selection (local to monitor): x={x}, y={y}, w={w}, h={h}");
+                            dbg!("Monitor: pos=({}, {})", monitor_pos.x, monitor_pos.y);
+                            dbg!("Selection (local to monitor): x={x}, y={y}, w={w}, h={h}");
 
                             for win in windows.values() {
                                 win.window.set_visible(false);
@@ -127,7 +154,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                 .find(|m| m.x() == monitor_pos.x && m.y() == monitor_pos.y);
 
                             if let Some(monitor) = target_monitor {
-                                debug!("Capturing monitor: {}", monitor.name());
+                                dbg!("Capturing monitor: {}", monitor.name());
                                 let image = monitor.capture_image().unwrap();
                                 let cropped =
                                     image::imageops::crop_imm(&image, x, y, w, h).to_image();
@@ -144,7 +171,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
                                 let builder = openai::CompletionsClient::<ReqwestClient>::builder()
                                     .api_key("")
-                                    .base_url("http://localhost:1234/v1");
+                                    .base_url(&url);
 
                                 let client = builder.build().unwrap();
 
@@ -152,7 +179,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                     following image and do not translate it.";
 
                                 let agent = client
-                                    .agent("allenai/olmocr-2-7b")
+                                    .agent(&model)
                                     .preamble(preamble)
                                     .temperature(0.5)
                                     .build();
@@ -173,7 +200,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                         .block_on(async { agent.prompt(image).await.unwrap() })
                                 });
 
-                                debug!("Response: {:#?}", response);
+                                dbg!("Response: {:#?}", &response);
 
                                 launch(LaunchConfig::new().with_window(WindowConfig::new_app(
                                     TextDisplayWindow {
@@ -181,7 +208,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                     },
                                 )))
                             } else {
-                                debug!("Could not find matching xcap monitor");
+                                dbg!("Could not find matching xcap monitor");
                             }
                         }
 
@@ -192,7 +219,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         if event.logical_key
                             == winit::keyboard::Key::Named(winit::keyboard::NamedKey::Escape)
                         {
-                            debug!("Cancelled");
+                            dbg!("Cancelled");
                             elwt.exit();
                         }
                     }
