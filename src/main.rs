@@ -42,6 +42,10 @@ struct Args {
     /// The base URL of the OpenAI-compatible API (default: http://localhost:1234/v1)
     #[arg(short, long)]
     url: Option<String>,
+
+    /// Whether to display the captured screenshot in the result window (default: true)
+    #[arg(short, long, default_value_t = true, action = clap::ArgAction::Set)]
+    display_screenshot: bool,
 }
 
 #[tokio::main]
@@ -63,8 +67,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         model = m;
     }
 
+    let display_screenshot = args.display_screenshot;
+
     dbg!("Using model: {}", &model);
     dbg!("Using API URL: {}", &url);
+    dbg!("Display screenshot in result window: {}", display_screenshot);
 
     let event_loop = EventLoop::new().unwrap();
 
@@ -200,12 +207,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
                                 dbg!("Response: {:#?}", &response);
 
-                                let img_bytes = Bytes::from(bytes);
+                                let img_bytes = if display_screenshot {
+                                    Some(Bytes::from(bytes))
+                                } else {
+                                    None
+                                };
 
                                 launch(LaunchConfig::new().with_window(WindowConfig::new_app(
                                     TextDisplayWindow {
                                         text: response.into(),
-                                        img_bytes: Some(img_bytes),
+                                        img_bytes,
                                     },
                                 )))
                             } else {
