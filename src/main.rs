@@ -9,7 +9,8 @@ use rig::{
 };
 use selection::{Selection, draw};
 use softbuffer::{Context, Surface};
-use std::{borrow::Cow, collections::HashMap, error::Error, rc::Rc};
+use std::{collections::HashMap, error::Error, rc::Rc};
+use text_display_window::TextDisplayWindow;
 use winit::{
     dpi::PhysicalPosition,
     event::{ElementState, Event, MouseButton, WindowEvent},
@@ -18,6 +19,7 @@ use winit::{
     window::{Window, WindowBuilder, WindowId, WindowLevel},
 };
 mod selection;
+mod text_display_window;
 
 struct OcrWindow {
     selection: Selection,
@@ -171,7 +173,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                 println!("Response: {:#?}", response);
 
                                 launch(LaunchConfig::new().with_window(WindowConfig::new_app(
-                                    MyApp {
+                                    TextDisplayWindow {
                                         text: response.into(),
                                     },
                                 )))
@@ -221,35 +223,4 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .unwrap();
 
     Ok(())
-}
-
-struct MyApp {
-    text: Cow<'static, str>,
-}
-
-impl App for MyApp {
-    fn render(&self) -> impl IntoElement {
-        let t = self.text.clone();
-        rect()
-            .padding(30.0)
-            .center()
-            .child(label().text(t.clone()))
-            .child(
-                Button::new()
-                    .on_press(move |_| {
-                        if let Err(e) = Clipboard::set(t.clone().into()) {
-                            eprintln!("Failed to copy to clipboard: {:?}", e);
-                        }
-                    })
-                    .outline()
-                    .child(
-                        rect()
-                            .content(Content::Flex)
-                            .horizontal()
-                            .spacing(20.0)
-                            .child(svg(freya::icons::lucide::copy()))
-                            .child(label().text("Copy").color((0, 0, 0))),
-                    ),
-            )
-    }
 }
