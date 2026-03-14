@@ -1,4 +1,5 @@
 use base64::Engine;
+use tracing_subscriber::prelude::*;
 use freya::prelude::*;
 use rig::{
     client::CompletionClient,
@@ -32,9 +33,10 @@ struct OcrWindow {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    // tracing_subscriber::registry()
-    //     .with(tracing_subscriber::fmt::layer())
-    //     .init();
+    #[cfg(debug_assertions)]
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer())
+        .init();
 
     let event_loop = EventLoop::new().unwrap();
 
