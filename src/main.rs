@@ -205,6 +205,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                 launch(LaunchConfig::new().with_window(WindowConfig::new_app(
                                     TextDisplayWindow {
                                         text: response.into(),
+                                        img_bytes: Some(bytes),
                                     },
                                 )))
                             } else {
