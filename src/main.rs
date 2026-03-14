@@ -184,10 +184,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                     .temperature(0.5)
                                     .build();
 
-                                let s = base64_str.to_string();
-
                                 let image = Image {
-                                    data: DocumentSourceKind::base64(&s),
+                                    data: DocumentSourceKind::base64(&base64_str),
                                     media_type: Some(ImageMediaType::PNG),
                                     detail: Some(ImageDetail::Auto),
                                     additional_params: None,
@@ -202,10 +200,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
                                 dbg!("Response: {:#?}", &response);
 
+                                let img_bytes = Bytes::from(bytes);
+
                                 launch(LaunchConfig::new().with_window(WindowConfig::new_app(
                                     TextDisplayWindow {
                                         text: response.into(),
-                                        img_bytes: Some(bytes),
+                                        img_bytes: Some(img_bytes),
                                     },
                                 )))
                             } else {
