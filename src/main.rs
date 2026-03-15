@@ -295,7 +295,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         display_screenshot
     );
 
-    let event_loop = EventLoop::new().unwrap();
+    let mut event_loop_builder = EventLoop::with_user_event();
+    let event_loop = event_loop_builder
+        .with_any_thread(true)
+        .build()
+        .expect("Failed to create event loop.");
 
     let mut app = App::new(model, url, display_screenshot);
     event_loop.run_app(&mut app)?;
