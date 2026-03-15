@@ -13,7 +13,6 @@ use softbuffer::{Context, Surface};
 use std::{collections::HashMap, error::Error, rc::Rc};
 use text_display_window::TextDisplayWindow;
 use tracing_subscriber::prelude::*;
-use winit::window::{Window, WindowAttributes, WindowId};
 use winit::{application::ApplicationHandler, monitor::MonitorHandle};
 use winit::{
     dpi::PhysicalPosition,
@@ -23,6 +22,10 @@ use winit::{
 use winit::{
     event::{MouseButton, WindowEvent},
     window::WindowLevel,
+};
+use winit::{
+    platform::wayland::EventLoopBuilderExtWayland,
+    window::{Window, WindowAttributes, WindowId},
 };
 
 mod selection;
@@ -210,12 +213,14 @@ impl ApplicationHandler for App {
                         };
 
                         std::thread::spawn(|| {
-                            launch(LaunchConfig::new().with_window(WindowConfig::new_app(
-                                TextDisplayWindow {
-                                    text: response.into(),
-                                    img_bytes,
-                                },
-                            )));
+                            launch(
+                                LaunchConfig::new()
+                                    .with_event_loop_builder(|eb| eb.with_any_thread(true))
+                                    .with_window(WindowConfig::new_app(TextDisplayWindow {
+                                        text: response.into(),
+                                        img_bytes,
+                                    })),
+                            );
                         });
                     } else {
                         dbg!("Could not find matching xcap monitor");

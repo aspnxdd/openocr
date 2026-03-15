@@ -17,5 +17,5 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-freya = { version = "0.4.0-rc.13", features = ["icons"] }
+freya =  { git = "https://github.com/marc2332/freya", rev = "3be82131ac9f624a77a4b6c556f08ba929cf0310", features = ["icons"] }
 clap = { version = "4.6.0", features = ["derive"] }
