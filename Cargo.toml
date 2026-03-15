@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-winit = "0.29"
+winit = "0.30.13"
 softbuffer = "0.4"
 xcap = "0.0.14"
 image = "0.25.9"
