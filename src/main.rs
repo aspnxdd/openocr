@@ -115,7 +115,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // launch2(BuilderA::default().with_stuff(123));
 
     // launch2(BuilderA::default().with_stuff_2(123));
- 
+
     // print!("{:?}", builder.stuff);
 
     for (i, monitor) in xcap_monitors.into_iter().enumerate() {
@@ -124,11 +124,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 display_screenshot,
                 model: model.clone().into(),
                 url: url.clone().into(),
+                monitor: monitor.clone(),
             })
             .with_transparency(true)
             .with_background(Color::TRANSPARENT)
             .with_decorations(false)
-            .with_window_attributes(move |mut attributes, el| {
+            .with_window_attributes(move |attributes, el| {
                 let monitor = el.available_monitors().nth(i).unwrap();
                 attributes
                     .with_fullscreen(Some(winit::window::Fullscreen::Borderless(Some(

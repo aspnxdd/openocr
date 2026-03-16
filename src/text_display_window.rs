@@ -9,11 +9,13 @@ use rig::{
     message::{DocumentSourceKind, Image, ImageDetail, ImageMediaType},
     providers::openai,
 };
+use xcap::Monitor;
 
 pub struct TextDisplayWindow {
     pub model: Cow<'static, str>,
     pub url: Cow<'static, str>,
     pub display_screenshot: bool,
+    pub monitor: Monitor,
 }
 
 impl App for TextDisplayWindow {
@@ -32,89 +34,85 @@ impl App for TextDisplayWindow {
         let url = self.url.clone();
         let model = self.model.clone().to_string();
         let display_screenshot = self.display_screenshot;
+        let monitor = self.monitor.clone();
+
+        let x = start.read().x.min(end.read().x);
+        let y = start.read().y.min(end.read().y);
 
         rect()
             .expanded()
             .opacity(0.4)
             .background((25, 25, 25))
+            .on_key_down(move |e: Event<KeyboardEventData>| {
+                println!("Key pressed: {:?}", e.key);
+                if e.key.eq(&Key::Named(NamedKey::Escape)) {
+                    std::process::exit(0);
+                }
+            })
             .on_mouse_down(move |e: Event<MouseEventData>| {
                 start.set(e.global_location);
                 should_capture.set(true);
             })
             .on_mouse_up(move |e: Event<MouseEventData>| {
                 end.set(e.global_location);
-                let inst = std::time::Instant::now();
-                let xcap_monitors = xcap::Monitor::all().unwrap(); // TODO pass via props to the APP
-                println!("{}ms", inst.elapsed().as_millis());
-                let target_monitor = xcap_monitors.iter().find(|monitor| {
-                    let x = monitor.x();
-                    let y = monitor.y();
-                    let width = monitor.width() as f32;
-                    let height = monitor.height() as f32;
-                    let within_x = e.global_location.x >= x as f64
-                        && e.global_location.x <= (x as f64 + width as f64);
-                    let within_y = e.global_location.y >= y as f64
-                        && e.global_location.y <= (y as f64 + height as f64);
-                    within_x && within_y
-                });
+                should_capture.set(false);
+                if width < 10.0 || height < 10.0 {
+                    return;
+                }
+                dbg!("Capturing monitor: {}", monitor.name());
 
-                if let Some(monitor) = target_monitor {
-                    dbg!("Capturing monitor: {}", monitor.name());
-                    should_capture.set(false);
-
-                    let image = monitor.capture_image().unwrap();
-                    let cropped = image::imageops::crop_imm(
-                        &image,
-                        start.read().x as u32,
-                        start.read().y as u32,
-                        width as u32,
-                        height as u32,
+                let image = monitor.capture_image().unwrap();
+                let cropped = image::imageops::crop_imm(
+                    &image,
+                    x as u32,
+                    y as u32,
+                    width as u32,
+                    height as u32,
+                )
+                .to_image();
+                let mut bytes: Vec<u8> = Vec::new();
+                cropped
+                    .write_to(
+                        &mut std::io::Cursor::new(&mut bytes),
+                        image::ImageFormat::Png,
                     )
-                    .to_image();
-                    let mut bytes: Vec<u8> = Vec::new();
-                    cropped
-                        .write_to(
-                            &mut std::io::Cursor::new(&mut bytes),
-                            image::ImageFormat::Png,
-                        )
-                        .unwrap();
+                    .unwrap();
 
-                    let base64_str = base64::engine::general_purpose::STANDARD.encode(&bytes);
+                let base64_str = base64::engine::general_purpose::STANDARD.encode(&bytes);
 
-                    let builder = openai::CompletionsClient::<ReqwestClient>::builder()
-                        .api_key("")
-                        .base_url(&url);
+                let builder = openai::CompletionsClient::<ReqwestClient>::builder()
+                    .api_key("")
+                    .base_url(&url);
 
-                    let client = builder.build().unwrap();
+                let client = builder.build().unwrap();
 
-                    let preamble = "Extract the text from the \
+                let preamble = "Extract the text from the \
                                                 following image and do not translate it.";
 
-                    let m = model.clone();
+                let m = model.clone();
 
-                    let agent = client.agent(&m).preamble(preamble).temperature(0.5).build();
+                let agent = client.agent(&m).preamble(preamble).temperature(0.5).build();
 
-                    let image = Image {
-                        data: DocumentSourceKind::base64(&base64_str),
-                        media_type: Some(ImageMediaType::PNG),
-                        detail: Some(ImageDetail::Auto),
-                        additional_params: None,
-                        ..Default::default()
-                    };
-                    // Prompt the agent and print the response
+                let image = Image {
+                    data: DocumentSourceKind::base64(&base64_str),
+                    media_type: Some(ImageMediaType::PNG),
+                    detail: Some(ImageDetail::Auto),
+                    additional_params: None,
+                    ..Default::default()
+                };
+                // Prompt the agent and print the response
 
-                    spawn(async move {
-                        let response = agent.prompt(image).await.unwrap();
+                spawn(async move {
+                    let response = agent.prompt(image).await.unwrap();
 
-                        dbg!("Response: {:#?}", &response);
+                    dbg!("Response: {:#?}", &response);
 
-                        text.set(response);
+                    text.set(response);
 
-                        if display_screenshot {
-                            img_bytes.set(Bytes::from(bytes));
-                        }
-                    });
-                }
+                    if display_screenshot {
+                        img_bytes.set(Bytes::from(bytes));
+                    }
+                });
             })
             .on_mouse_move(move |e: Event<MouseEventData>| {
                 end.set(e.global_location);
@@ -124,11 +122,7 @@ impl App for TextDisplayWindow {
                     .width(Size::px(width))
                     .height(Size::px(height))
                     .background((255, 0, 0, 128))
-                    .position(
-                        Position::new_absolute()
-                            .top(start.read().y.min(end.read().y) as f32)
-                            .left(start.read().x.min(end.read().x) as f32),
-                    )
+                    .position(Position::new_absolute().top(y as f32).left(x as f32))
             }))
     }
 
