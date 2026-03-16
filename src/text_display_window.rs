@@ -18,6 +18,37 @@ pub struct TextDisplayWindow {
     pub monitor: Monitor,
 }
 
+fn sub_app(img_bytes: State<Bytes>, text: State<String>) -> impl IntoElement {
+    rect()
+        .padding(30.0)
+        .spacing(10.0)
+        .center()
+        .child(
+            rect()
+                .width(Size::fill())
+                .center()
+                .child(ImageViewer::new(("image", img_bytes.read().clone()))),
+        )
+        .child(label().text(text.read().clone()))
+        .child(
+            Button::new()
+                .on_press(move |_| {
+                    if let Err(e) = Clipboard::set(text.read().clone().into()) {
+                        eprintln!("Failed to copy to clipboard: {:?}", e);
+                    }
+                })
+                .outline()
+                .child(
+                    rect()
+                        .content(Content::Flex)
+                        .horizontal()
+                        .spacing(20.0)
+                        .child(svg(freya::icons::lucide::copy()))
+                        .child(label().text("Copy").color((0, 0, 0))),
+                ),
+        )
+}
+
 impl App for TextDisplayWindow {
     fn render(&self) -> impl IntoElement {
         let mut img_bytes = use_state(|| Bytes::default());
@@ -38,6 +69,29 @@ impl App for TextDisplayWindow {
 
         let x = start.read().x.min(end.read().x);
         let y = start.read().y.min(end.read().y);
+
+        let mut windows = use_state(Vec::new);
+
+        dbg!("windows: {}", windows.read().len());
+
+        let on_open = move |_| {
+            spawn(async move {
+                let window_id = Platform::get()
+                    .launch_window(WindowConfig::new(move || {
+                        sub_app(img_bytes.clone(), text.clone())
+                    }))
+                    .await;
+                windows.write().push(window_id);
+            });
+        };
+
+        // let on_close_children = move |_| {
+        //     spawn(async move {
+        //         for window_id in windows.write().drain(..) {
+        //             Platform::get().close_window(window_id);
+        //         }
+        //     });
+        // };
 
         rect()
             .expanded()
@@ -111,6 +165,7 @@ impl App for TextDisplayWindow {
                     if display_screenshot {
                         img_bytes.set(Bytes::from(bytes));
                     }
+                    on_open(());
                 });
             })
             .on_mouse_move(move |e: Event<MouseEventData>| {
