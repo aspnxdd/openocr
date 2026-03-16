@@ -43,8 +43,7 @@ impl App for TextDisplayWindow {
             .expanded()
             .opacity(0.4)
             .background((25, 25, 25))
-            .on_key_down(move |e: Event<KeyboardEventData>| {
-                println!("Key pressed: {:?}", e.key);
+            .on_global_key_down(move |e: Event<KeyboardEventData>| {
                 if e.key.eq(&Key::Named(NamedKey::Escape)) {
                     std::process::exit(0);
                 }
