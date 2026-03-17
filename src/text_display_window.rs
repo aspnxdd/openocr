@@ -1,4 +1,4 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, time::Instant};
 
 use base64::Engine;
 use freya::prelude::*;
@@ -18,16 +18,8 @@ pub struct TextDisplayWindow {
     pub monitor: Monitor,
 }
 
-fn sub_app(img_bytes: State<Bytes>, text: State<String>) -> impl IntoElement {
-    let id = img_bytes
-        .read()
-        .clone()
-        .iter()
-        .map(|e| e.to_ascii_lowercase().to_string())
-        .collect::<Vec<String>>()
-        .join("");
-
-    dbg!("Rendering sub app with id: {}", &id);
+fn sub_app(img_bytes: State<(Instant, Bytes)>, text: State<String>) -> impl IntoElement {
+    let id = img_bytes.read().0;
 
     rect()
         .padding(30.0)
@@ -37,7 +29,7 @@ fn sub_app(img_bytes: State<Bytes>, text: State<String>) -> impl IntoElement {
             rect()
                 .width(Size::fill())
                 .center()
-                .child(ImageViewer::new((&id, img_bytes.read().clone()))),
+                .child(ImageViewer::new((&id, img_bytes.read().1.clone()))),
         )
         .child(label().text(text.read().clone()))
         .child(
@@ -61,7 +53,7 @@ fn sub_app(img_bytes: State<Bytes>, text: State<String>) -> impl IntoElement {
 
 impl App for TextDisplayWindow {
     fn render(&self) -> impl IntoElement {
-        let mut img_bytes = use_state(|| Bytes::default());
+        let mut img_bytes = use_state(|| (Instant::now(), Bytes::default()));
         let mut text = use_state(|| String::new());
 
         let mut start = use_state(|| CursorPoint::new(0.0, 0.0));
@@ -166,7 +158,7 @@ impl App for TextDisplayWindow {
                     text.set(response);
 
                     if display_screenshot {
-                        img_bytes.set(Bytes::from(bytes));
+                        img_bytes.set((Instant::now(), Bytes::from(bytes)));
                     }
                     on_open(());
                 });
