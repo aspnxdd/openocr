@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 
 use base64::Engine;
-use freya::{prelude::*, winit::dpi::PhysicalPosition};
+use freya::prelude::*;
 use rig::{
     client::CompletionClient,
     completion::Prompt,
@@ -19,6 +19,16 @@ pub struct TextDisplayWindow {
 }
 
 fn sub_app(img_bytes: State<Bytes>, text: State<String>) -> impl IntoElement {
+    let id = img_bytes
+        .read()
+        .clone()
+        .iter()
+        .map(|e| e.to_ascii_lowercase().to_string())
+        .collect::<Vec<String>>()
+        .join("");
+
+    dbg!("Rendering sub app with id: {}", &id);
+
     rect()
         .padding(30.0)
         .spacing(10.0)
@@ -27,7 +37,7 @@ fn sub_app(img_bytes: State<Bytes>, text: State<String>) -> impl IntoElement {
             rect()
                 .width(Size::fill())
                 .center()
-                .child(ImageViewer::new(("image", img_bytes.read().clone()))),
+                .child(ImageViewer::new((&id, img_bytes.read().clone()))),
         )
         .child(label().text(text.read().clone()))
         .child(
@@ -59,6 +69,8 @@ impl App for TextDisplayWindow {
 
         let mut should_capture = use_state(|| false);
 
+        let mut is_opened = use_state(|| false);
+
         let width = (end.read().x - start.read().x).abs() as f32;
         let height = (end.read().y - start.read().y).abs() as f32;
 
@@ -70,28 +82,19 @@ impl App for TextDisplayWindow {
         let x = start.read().x.min(end.read().x);
         let y = start.read().y.min(end.read().y);
 
-        let mut windows = use_state(Vec::new);
-
-        dbg!("windows: {}", windows.read().len());
-
         let on_open = move |_| {
+            if is_opened.read().clone() {
+                return;
+            }
             spawn(async move {
-                let window_id = Platform::get()
+                Platform::get()
                     .launch_window(WindowConfig::new(move || {
                         sub_app(img_bytes.clone(), text.clone())
                     }))
                     .await;
-                windows.write().push(window_id);
+                is_opened.set(true);
             });
         };
-
-        // let on_close_children = move |_| {
-        //     spawn(async move {
-        //         for window_id in windows.write().drain(..) {
-        //             Platform::get().close_window(window_id);
-        //         }
-        //     });
-        // };
 
         rect()
             .expanded()
