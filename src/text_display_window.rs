@@ -19,7 +19,7 @@ pub struct TextDisplayWindow {
 }
 
 fn sub_app(img_bytes: State<(Instant, Bytes)>, text: State<String>) -> impl IntoElement {
-    let id = img_bytes.read().0;
+    let (id, bytes) = img_bytes.read().clone();
 
     rect()
         .padding(30.0)
@@ -29,13 +29,13 @@ fn sub_app(img_bytes: State<(Instant, Bytes)>, text: State<String>) -> impl Into
             rect()
                 .width(Size::fill())
                 .center()
-                .child(ImageViewer::new((&id, img_bytes.read().1.clone()))),
+                .child(ImageViewer::new((&id, bytes))),
         )
         .child(label().text(text.read().clone()))
         .child(
             Button::new()
                 .on_press(move |_| {
-                    if let Err(e) = Clipboard::set(text.read().clone().into()) {
+                    if let Err(e) = Clipboard::set(text.read().clone()) {
                         eprintln!("Failed to copy to clipboard: {:?}", e);
                     }
                 })
@@ -54,7 +54,7 @@ fn sub_app(img_bytes: State<(Instant, Bytes)>, text: State<String>) -> impl Into
 impl App for TextDisplayWindow {
     fn render(&self) -> impl IntoElement {
         let mut img_bytes = use_state(|| (Instant::now(), Bytes::default()));
-        let mut text = use_state(|| String::new());
+        let mut text = use_state(String::new);
 
         let mut start = use_state(|| CursorPoint::new(0.0, 0.0));
         let mut end = use_state(|| CursorPoint::new(0.0, 0.0));
@@ -75,14 +75,12 @@ impl App for TextDisplayWindow {
         let y = start.read().y.min(end.read().y);
 
         let on_open = move |_| {
-            if is_opened.read().clone() {
+            if *is_opened.read() {
                 return;
             }
             spawn(async move {
                 Platform::get()
-                    .launch_window(WindowConfig::new(move || {
-                        sub_app(img_bytes.clone(), text.clone())
-                    }))
+                    .launch_window(WindowConfig::new(move || sub_app(img_bytes, text)))
                     .await;
                 is_opened.set(true);
             });
@@ -148,8 +146,6 @@ impl App for TextDisplayWindow {
                     additional_params: None,
                     ..Default::default()
                 };
-                // Prompt the agent and print the response
-
                 spawn(async move {
                     let response = agent.prompt(image).await.unwrap();
 
@@ -174,36 +170,4 @@ impl App for TextDisplayWindow {
                     .position(Position::new_absolute().top(y as f32).left(x as f32))
             }))
     }
-
-    //             let t = self.text.clone();
-    //     let maybe_img = self.img_bytes.clone().map(|bytes| {
-    //         rect()
-    //             .width(Size::fill())
-    //             .center()
-    //             .child(ImageViewer::new(("image", bytes)))
-    //     });
-    //     rect()
-    //         .padding(30.0)
-    //         .spacing(10.0)
-    //         .center()
-    //         .maybe_child(maybe_img)
-    //         .child(label().text(t.clone()))
-    //         .child(
-    //             Button::new()
-    //                 .on_press(move |_| {
-    //                     if let Err(e) = Clipboard::set(t.clone().into()) {
-    //                         eprintln!("Failed to copy to clipboard: {:?}", e);
-    //                     }
-    //                 })
-    //                 .outline()
-    //                 .child(
-    //                     rect()
-    //                         .content(Content::Flex)
-    //                         .horizontal()
-    //                         .spacing(20.0)
-    //                         .child(svg(freya::icons::lucide::copy()))
-    //                         .child(label().text("Copy").color((0, 0, 0))),
-    //                 ),
-    //         )
-    // }
 }
