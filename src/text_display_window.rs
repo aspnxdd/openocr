@@ -25,28 +25,68 @@ fn sub_app(img_bytes: State<(Instant, Bytes)>, text: State<String>) -> impl Into
         .padding(30.0)
         .spacing(10.0)
         .center()
+        .height(Size::Fill)
+        .width(Size::Fill)
+        .content(Content::Flex)
+        .direction(Direction::Horizontal)
         .child(
             rect()
-                .width(Size::fill())
+                .height(Size::Fill)
+                .width(Size::percent(40.0))
+                .background((251, 84, 43))
+                .rounded()
                 .center()
                 .child(ImageViewer::new((&id, bytes))),
         )
-        .child(label().text(text.read().clone()))
         .child(
-            Button::new()
-                .on_press(move |_| {
-                    if let Err(e) = Clipboard::set(text.read().clone()) {
-                        eprintln!("Failed to copy to clipboard: {:?}", e);
-                    }
-                })
-                .outline()
+            rect()
+                .center()
+                .height(Size::Fill)
+                .width(Size::percent(60.0))
+                .content(Content::Flex)
+                .main_align(Alignment::Start)
+                .background((251, 161, 43))
+                .rounded()
+                .spacing(10.0)
+                .padding(10.0)
+                .child(
+                    label()
+                        .text("Extracted Text (OCR)")
+                        .font_size(16.0)
+                        .width(Size::Fill)
+                        .text_align(TextAlign::Left),
+                )
                 .child(
                     rect()
                         .content(Content::Flex)
-                        .horizontal()
-                        .spacing(20.0)
-                        .child(svg(freya::icons::lucide::copy()))
-                        .child(label().text("Copy").color((0, 0, 0))),
+                        .vertical()
+                        .center()
+                        .expanded()
+                        .border(Border::new().width(2.0).fill((0, 0, 0)))
+                        .spacing(10.0)
+                        .child(label().text(text.read().clone()))
+                        .child(
+                            Button::new()
+                                .on_press(move |_| {
+                                    if let Err(e) = Clipboard::set(text.read().clone()) {
+                                        eprintln!("Failed to copy to clipboard: {:?}", e);
+                                    }
+                                })
+                                .outline()
+                                .child(
+                                    rect()
+                                        .content(Content::Flex)
+                                        .horizontal()
+                                        .spacing(10.0)
+                                        .center()
+                                        .child(
+                                            svg(freya::icons::lucide::copy()).width(Size::px(14.0)),
+                                        )
+                                        .child(
+                                            label().text("Copy").font_size(14.0).color((0, 0, 0)),
+                                        ),
+                                ),
+                        ),
                 ),
         )
 }

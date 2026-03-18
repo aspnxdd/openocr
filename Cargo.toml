@@ -3,6 +3,9 @@ name = "openocr"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+devtools = ["freya/devtools"]
+
 [dependencies]
 winit = "0.29"
 softbuffer = "0.4"
@@ -18,6 +21,6 @@ serde_json = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 freya = { git = "https://github.com/marc2332/freya.git", rev = "refs/pull/1655/head", features = [
-  "icons",
+  "icons", "devtools"
 ] }
 clap = { version = "4.6.0", features = ["derive"] }
