@@ -18,6 +18,38 @@ pub struct TextDisplayWindow {
     pub monitor: Monitor,
 }
 
+pub trait ExpandedXY {
+    /// Expand the `width` using [Size::fill()].
+    fn expanded_x(self) -> Self;
+
+    /// Expand the `height` using [Size::fill()].
+    fn expanded_y(self) -> Self;
+}
+
+impl ExpandedXY for Rect {
+    fn expanded_x(mut self) -> Self {
+        self.get_layout().layout.width = Size::fill();
+        self
+    }
+
+    fn expanded_y(mut self) -> Self {
+        self.get_layout().layout.height = Size::fill();
+        self
+    }
+}
+
+impl ExpandedXY for Label {
+    fn expanded_x(mut self) -> Self {
+        self.get_layout().layout.width = Size::fill();
+        self
+    }
+
+    fn expanded_y(mut self) -> Self {
+        self.get_layout().layout.height = Size::fill();
+        self
+    }
+}
+
 fn sub_app(img_bytes: State<(Instant, Bytes)>, text: State<String>) -> impl IntoElement {
     let (id, bytes) = img_bytes.read().clone();
 
@@ -31,7 +63,7 @@ fn sub_app(img_bytes: State<(Instant, Bytes)>, text: State<String>) -> impl Into
         .direction(Direction::Horizontal)
         .child(
             rect()
-                .height(Size::Fill)
+                .expanded_y()
                 .width(Size::percent(40.0))
                 .background((251, 84, 43))
                 .rounded()
@@ -41,7 +73,7 @@ fn sub_app(img_bytes: State<(Instant, Bytes)>, text: State<String>) -> impl Into
         .child(
             rect()
                 .center()
-                .height(Size::Fill)
+                .expanded_y()
                 .width(Size::percent(60.0))
                 .content(Content::Flex)
                 .main_align(Alignment::Start)
@@ -53,7 +85,7 @@ fn sub_app(img_bytes: State<(Instant, Bytes)>, text: State<String>) -> impl Into
                     label()
                         .text("Extracted Text (OCR)")
                         .font_size(16.0)
-                        .width(Size::Fill)
+                        .expanded_x()
                         .text_align(TextAlign::Left),
                 )
                 .child(
