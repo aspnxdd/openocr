@@ -11,6 +11,42 @@ use rig::{
 };
 use xcap::Monitor;
 
+/// Color palette for the application UI.
+mod colors {
+    use freya::prelude::Color;
+
+    // ── Backgrounds ──────────────────────────────────────────────
+    pub const BG_ROOT: Color = Color::from_rgb(20, 20, 22);
+    pub const BG_HEADER: Color = Color::from_rgb(28, 28, 32);
+    pub const BG_FOOTER: Color = Color::from_rgb(24, 24, 28);
+    pub const BG_PANEL: Color = Color::from_rgb(30, 30, 35);
+    pub const BG_OVERLAY: Color = Color::from_rgb(25, 25, 25);
+
+    // ── Borders ──────────────────────────────────────────────────
+    pub const BORDER_HEADER: Color = Color::from_rgb(45, 45, 50);
+    pub const BORDER_FOOTER: Color = Color::from_rgb(40, 40, 46);
+    pub const BORDER_PANEL: Color = Color::from_rgb(50, 50, 58);
+
+    // ── Shadows ──────────────────────────────────────────────────
+    pub const SHADOW_PANEL: Color = Color::from_af32rgb(0.3, 0, 0, 0);
+
+    // ── Accent ───────────────────────────────────────────────────
+    pub const ACCENT: Color = Color::from_rgb(130, 100, 220);
+    pub const SUCCESS: Color = Color::from_rgb(130, 220, 130);
+
+    // ── Text ─────────────────────────────────────────────────────
+    pub const TEXT_PRIMARY: Color = Color::from_rgb(250, 250, 252);
+    pub const TEXT_BODY: Color = Color::from_rgb(235, 235, 240);
+    pub const TEXT_SECTION: Color = Color::from_rgb(180, 180, 195);
+    pub const TEXT_SUBTITLE: Color = Color::from_rgb(160, 160, 175);
+    pub const TEXT_HINT: Color = Color::from_rgb(100, 100, 115);
+    pub const TEXT_MUTED: Color = Color::from_rgb(80, 80, 95);
+    pub const TEXT_SEPARATOR: Color = Color::from_rgb(80, 80, 90);
+
+    // ── Selection overlay ────────────────────────────────────────
+    pub const SELECTION: Color = Color::from_af32rgb(0.5, 255, 0, 0);
+}
+
 pub struct TextDisplayWindow {
     pub model: Cow<'static, str>,
     pub url: Cow<'static, str>,
@@ -19,6 +55,7 @@ pub struct TextDisplayWindow {
 }
 
 pub trait ExpandedXY {
+    #[allow(dead_code)]
     /// Expand the `width` using [Size::fill()].
     fn expanded_x(self) -> Self;
 
@@ -51,74 +88,274 @@ impl ExpandedXY for Label {
 }
 
 fn sub_app(img_bytes: State<(Instant, Bytes)>, text: State<String>) -> impl IntoElement {
+    use_init_theme(|| DARK_THEME);
     let (id, bytes) = img_bytes.read().clone();
 
+    let mut copied = use_state(|| false);
+
+    // Root container: dark background, vertical layout
     rect()
-        .padding(30.0)
-        .spacing(10.0)
-        .center()
-        .height(Size::Fill)
-        .width(Size::Fill)
+        .expanded()
+        .background(colors::BG_ROOT)
         .content(Content::Flex)
-        .direction(Direction::Horizontal)
+        .vertical()
+        // ── Header bar ──────────────────────────────────────────────
         .child(
             rect()
-                .expanded_y()
-                .width(Size::percent(40.0))
-                .background((251, 84, 43))
-                .rounded()
-                .center()
-                .child(ImageViewer::new((&id, bytes))),
-        )
-        .child(
-            rect()
-                .center()
-                .expanded_y()
-                .width(Size::percent(60.0))
+                .width(Size::Fill)
+                .padding(Gaps::new(16.0, 24.0, 16.0, 24.0))
                 .content(Content::Flex)
+                .horizontal()
+                .cross_align(Alignment::Center)
                 .main_align(Alignment::Start)
-                .background((251, 161, 43))
-                .rounded()
-                .spacing(10.0)
-                .padding(10.0)
+                .spacing(12.0)
+                .background(colors::BG_HEADER)
+                .border(Border::new().width(1.0).fill(colors::BORDER_HEADER))
+                // App icon
+                .child(
+                    svg(freya::icons::lucide::scan_text())
+                        .color(colors::ACCENT)
+                        .width(Size::px(22.0))
+                        .height(Size::px(22.0)),
+                )
+                // App title
                 .child(
                     label()
-                        .text("Extracted Text (OCR)")
-                        .font_size(16.0)
-                        .expanded_x()
-                        .text_align(TextAlign::Left),
+                        .text("OpenOCR")
+                        .font_size(18.0)
+                        .font_weight(FontWeight::BOLD)
+                        .color(colors::TEXT_PRIMARY),
                 )
+                // Separator dot
+                .child(
+                    label()
+                        .text("\u{2022}")
+                        .font_size(10.0)
+                        .color(colors::TEXT_SEPARATOR),
+                )
+                // Subtitle
+                .child(
+                    label()
+                        .text("Results")
+                        .font_size(14.0)
+                        .color(colors::TEXT_SUBTITLE),
+                ),
+        )
+        // ── Main content area (two panels) ──────────────────────────
+        .child(
+            rect()
+                .width(Size::Fill)
+                .height(Size::flex(1.0))
+                .padding(20.0)
+                .spacing(16.0)
+                .content(Content::Flex)
+                .horizontal()
+                .cross_align(Alignment::Start)
+                // ── Left panel: Screenshot ───────────────────────────
                 .child(
                     rect()
+                        .expanded_y()
+                        .width(Size::percent(40.0))
                         .content(Content::Flex)
                         .vertical()
-                        .center()
-                        .expanded()
-                        .border(Border::new().width(2.0).fill((0, 0, 0)))
-                        .spacing(10.0)
-                        .child(label().text(text.read().clone()))
+                        .spacing(12.0)
+                        // Section header
                         .child(
-                            Button::new()
-                                .on_press(move |_| {
-                                    if let Err(e) = Clipboard::set(text.read().clone()) {
-                                        eprintln!("Failed to copy to clipboard: {:?}", e);
-                                    }
-                                })
-                                .outline()
+                            rect()
+                                .width(Size::Fill)
+                                .content(Content::Flex)
+                                .horizontal()
+                                .cross_align(Alignment::Center)
+                                .spacing(8.0)
                                 .child(
-                                    rect()
-                                        .content(Content::Flex)
-                                        .horizontal()
-                                        .spacing(10.0)
-                                        .center()
+                                    svg(freya::icons::lucide::image())
+                                        .color(colors::ACCENT)
+                                        .width(Size::px(16.0))
+                                        .height(Size::px(16.0)),
+                                )
+                                .child(
+                                    label()
+                                        .text("Screenshot")
+                                        .font_size(13.0)
+                                        .font_weight(FontWeight::SEMI_BOLD)
+                                        .color(colors::TEXT_SECTION),
+                                ),
+                        )
+                        // Image container
+                        .child(
+                            rect()
+                                .expanded()
+                                .background(colors::BG_PANEL)
+                                .rounded_lg()
+                                .border(Border::new().width(1.0).fill(colors::BORDER_PANEL))
+                                .shadow(
+                                    Shadow::new()
+                                        .x(0.0)
+                                        .y(4.0)
+                                        .blur(16.0)
+                                        .spread(0.0)
+                                        .color(colors::SHADOW_PANEL),
+                                )
+                                .overflow(Overflow::Clip)
+                                .center()
+                                .padding(8.0)
+                                .child(
+                                    ImageViewer::new((&id, bytes))
+                                        .sampling_mode(SamplingMode::Trilinear),
+                                ),
+                        ),
+                )
+                // ── Right panel: Extracted text ─────────────────────
+                .child(
+                    rect()
+                        .expanded_y()
+                        .width(Size::percent(60.0))
+                        .content(Content::Flex)
+                        .vertical()
+                        .spacing(12.0)
+                        // Section header
+                        .child(
+                            rect()
+                                .width(Size::Fill)
+                                .content(Content::Flex)
+                                .horizontal()
+                                .cross_align(Alignment::Center)
+                                .main_align(Alignment::Start)
+                                .spacing(8.0)
+                                .child(
+                                    svg(freya::icons::lucide::file_text())
+                                        .color(colors::ACCENT)
+                                        .width(Size::px(16.0))
+                                        .height(Size::px(16.0)),
+                                )
+                                .child(
+                                    label()
+                                        .text("Extracted Text")
+                                        .font_size(13.0)
+                                        .font_weight(FontWeight::SEMI_BOLD)
+                                        .color(colors::TEXT_SECTION),
+                                ),
+                        )
+                        // Text content area with scrolling
+                        .child(
+                            rect()
+                                .expanded()
+                                .background(colors::BG_PANEL)
+                                .rounded_lg()
+                                .border(Border::new().width(1.0).fill(colors::BORDER_PANEL))
+                                .shadow(
+                                    Shadow::new()
+                                        .x(0.0)
+                                        .y(4.0)
+                                        .blur(16.0)
+                                        .spread(0.0)
+                                        .color(colors::SHADOW_PANEL),
+                                )
+                                .content(Content::Flex)
+                                .vertical()
+                                .padding(20.0)
+                                .child(
+                                    ScrollView::new().expanded().child(
+                                        paragraph()
+                                            .width(Size::Fill)
+                                            .padding(Gaps::new(20.0, 20.0, 20.0, 20.0))
+                                            .line_height(1.7)
+                                            .span(
+                                                Span::new(text.read().clone())
+                                                    .font_size(15.0)
+                                                    .color(colors::TEXT_BODY),
+                                            ),
+                                    ),
+                                ),
+                        )
+                        // Action bar: copy button
+                        .child(
+                            rect()
+                                .width(Size::Fill)
+                                .content(Content::Flex)
+                                .horizontal()
+                                .cross_align(Alignment::Center)
+                                .main_align(Alignment::End)
+                                .spacing(10.0)
+                                // Hint text
+                                .child(
+                                    label()
+                                        .text("Click to copy extracted text")
+                                        .font_size(12.0)
+                                        .color(colors::TEXT_HINT),
+                                )
+                                // Copy button
+                                .child(
+                                    Button::new()
+                                        .on_press(move |_| {
+                                            if let Err(e) = Clipboard::set(text.read().clone()) {
+                                                eprintln!("Failed to copy to clipboard: {:?}", e);
+                                            } else {
+                                                copied.set(true);
+                                                spawn(async move {
+                                                    tokio::time::sleep(
+                                                        std::time::Duration::from_secs(2),
+                                                    )
+                                                    .await;
+                                                    copied.set(false);
+                                                });
+                                            }
+                                        })
+                                        .filled()
                                         .child(
-                                            svg(freya::icons::lucide::copy()).width(Size::px(14.0)),
-                                        )
-                                        .child(
-                                            label().text("Copy").font_size(14.0).color((0, 0, 0)),
+                                            rect()
+                                                .content(Content::Flex)
+                                                .horizontal()
+                                                .spacing(8.0)
+                                                .center()
+                                                .child(if *copied.read() {
+                                                    svg(freya::icons::lucide::check())
+                                                        .color(colors::SUCCESS)
+                                                        .width(Size::px(16.0))
+                                                        .height(Size::px(16.0))
+                                                } else {
+                                                    svg(freya::icons::lucide::copy())
+                                                        .color(colors::TEXT_PRIMARY)
+                                                        .width(Size::px(16.0))
+                                                        .height(Size::px(16.0))
+                                                })
+                                                .child(
+                                                    label()
+                                                        .text(if *copied.read() {
+                                                            "Copied!"
+                                                        } else {
+                                                            "Copy to Clipboard"
+                                                        })
+                                                        .font_size(13.0)
+                                                        .font_weight(FontWeight::MEDIUM)
+                                                        .color(if *copied.read() {
+                                                            colors::SUCCESS
+                                                        } else {
+                                                            colors::TEXT_PRIMARY
+                                                        }),
+                                                ),
                                         ),
                                 ),
                         ),
+                ),
+        )
+        // ── Footer ──────────────────────────────────────────────────
+        .child(
+            rect()
+                .width(Size::Fill)
+                .margin(Gaps::new(30.0, 0.0, 0.0, 0.0))
+                .padding(Gaps::new(10.0, 24.0, 10.0, 24.0))
+                .content(Content::Flex)
+                .horizontal()
+                .cross_align(Alignment::Center)
+                .main_align(Alignment::Center)
+                .background(colors::BG_FOOTER)
+                .border(Border::new().width(1.0).fill(colors::BORDER_FOOTER))
+                .child(
+                    label()
+                        .text("Powered by local LLM + Freya  \u{2022}  openocr")
+                        .font_size(11.0)
+                        .color(colors::TEXT_MUTED),
                 ),
         )
 }
@@ -152,7 +389,9 @@ impl App for TextDisplayWindow {
             }
             spawn(async move {
                 Platform::get()
-                    .launch_window(WindowConfig::new(move || sub_app(img_bytes, text)))
+                    .launch_window(
+                        WindowConfig::new(move || sub_app(img_bytes, text)).with_title("OpenOCR"),
+                    )
                     .await;
                 is_opened.set(true);
             });
@@ -161,7 +400,7 @@ impl App for TextDisplayWindow {
         rect()
             .expanded()
             .opacity(0.4)
-            .background((25, 25, 25))
+            .background(colors::BG_OVERLAY)
             .on_global_key_down(move |e: Event<KeyboardEventData>| {
                 if e.key.eq(&Key::Named(NamedKey::Escape)) {
                     std::process::exit(0);
@@ -238,7 +477,7 @@ impl App for TextDisplayWindow {
                 rect()
                     .width(Size::px(width))
                     .height(Size::px(height))
-                    .background((255, 0, 0, 128))
+                    .background(colors::SELECTION)
                     .position(Position::new_absolute().top(y as f32).left(x as f32))
             }))
     }

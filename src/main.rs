@@ -65,6 +65,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 url: url.clone().into(),
                 monitor: monitor.clone(),
             })
+            .with_title("OpenOCR")
             .with_transparency(true)
             .with_background(Color::TRANSPARENT)
             .with_decorations(false)
