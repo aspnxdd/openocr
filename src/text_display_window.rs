@@ -9,6 +9,7 @@ use rig::{
     message::{DocumentSourceKind, Image, ImageDetail, ImageMediaType},
     providers::openai,
 };
+use serde::{Deserialize, Serialize};
 use xcap::Monitor;
 
 /// Color palette for the application UI, built on Tailwind CSS v4 colors.
@@ -361,6 +362,13 @@ fn sub_app(img_bytes: State<(Instant, Bytes)>, text: State<String>) -> impl Into
         )
 }
 
+#[derive(Serialize, Deserialize)]
+struct ScreenshotData {
+    screenshot_path: String,
+    created_at: u64,
+    response: String,
+}
+
 impl App for TextDisplayWindow {
     fn render(&self) -> impl IntoElement {
         let mut img_bytes = use_state(|| (Instant::now(), Bytes::default()));
@@ -458,8 +466,52 @@ impl App for TextDisplayWindow {
                     additional_params: None,
                     ..Default::default()
                 };
+
                 spawn(async move {
+                    let entry_id = uuid::Uuid::new_v4().to_string();
                     let response = agent.prompt(image).await.unwrap();
+
+                    let screenshot_path_path_buf = dirs::home_dir()
+                        .unwrap()
+                        .join(".openocr")
+                        .join("screenshots")
+                        .join(format!("{}.png", entry_id));
+
+                    let screenshot_path = screenshot_path_path_buf.to_string_lossy().to_string();
+
+                    let entry: ScreenshotData = ScreenshotData {
+                        screenshot_path: screenshot_path.clone(),
+                        created_at: std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap()
+                            .as_secs(),
+                        response: response.clone(),
+                    };
+
+                    let db_path = dirs::home_dir()
+                        .unwrap()
+                        .join(".openocr")
+                        .join("history.json");
+
+                    let history = if db_path.exists() {
+                        let data = std::fs::read_to_string(&db_path).unwrap();
+                        serde_json::from_str::<Vec<ScreenshotData>>(&data).unwrap_or_default()
+                    } else {
+                        Vec::new()
+                    };
+
+                    let mut new_history = vec![entry];
+                    new_history.extend(history);
+
+                    std::fs::create_dir_all(db_path.parent().unwrap()).unwrap();
+                    std::fs::write(
+                        &db_path,
+                        serde_json::to_string_pretty(&new_history).unwrap(),
+                    )
+                    .unwrap();
+
+                    std::fs::create_dir_all(screenshot_path_path_buf.parent().unwrap()).unwrap();
+                    cropped.save(&screenshot_path_path_buf).unwrap();
 
                     dbg!("Response: {:#?}", &response);
 
