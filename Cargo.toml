@@ -24,3 +24,4 @@ freya = { git = "https://github.com/marc2332/freya.git", rev = "refs/pull/1655/h
   "icons", "devtools"
 ] }
 clap = { version = "4.6.0", features = ["derive"] }
+tw-colors = "0.1.0"

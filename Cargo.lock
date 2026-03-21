@@ -3315,6 +3315,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "tw-colors",
  "winit 0.29.15",
  "xcap",
 ]
@@ -5260,6 +5261,12 @@ dependencies = [
  "thiserror 2.0.18",
  "utf-8",
 ]
+
+[[package]]
+name = "tw-colors"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "11ea6664f52dffdf47ccfc5519f4df00fb749bc819fde08fff03e7781c9f6267"
 
 [[package]]
 name = "typenum"
