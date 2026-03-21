@@ -257,14 +257,13 @@ fn sub_app(img_bytes: State<(Instant, Bytes)>, text: State<String>) -> impl Into
                                 .padding(20.0)
                                 .child(
                                     ScrollView::new().expanded().child(
-                                        paragraph()
+                                        rect()
                                             .width(Size::Fill)
-                                            .padding(Gaps::new(20.0, 20.0, 20.0, 20.0))
-                                            .line_height(1.7)
-                                            .span(
-                                                Span::new(text.read().clone())
-                                                    .font_size(15.0)
-                                                    .color(colors::TEXT_BODY),
+                                            .padding(2.0)
+                                            .font_size(15.0)
+                                            .color(colors::TEXT_BODY)
+                                            .child(
+                                                SelectableText::new(text.read().clone()).into_element()
                                             ),
                                     ),
                                 ),
