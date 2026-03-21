@@ -6,8 +6,6 @@ use text_display_window::TextDisplayWindow;
 
 mod text_display_window;
 
-use tokio::runtime::Builder;
-
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
@@ -26,8 +24,6 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let rt = Builder::new_multi_thread().enable_all().build().unwrap();
-    let _rt = rt.enter();
     // #[cfg(debug_assertions)]
     // tracing_subscriber::registry()
     //     .with(tracing_subscriber::fmt::layer())
