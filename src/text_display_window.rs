@@ -14,39 +14,35 @@ use xcap::Monitor;
 /// Color palette for the application UI, built on Tailwind CSS v4 colors.
 mod colors {
     use freya::prelude::Color;
-
-    /// Convert a `tw_colors` RGB tuple into a Freya [`Color`].
-    const fn tw((r, g, b): (u8, u8, u8)) -> Color {
-        Color::from_rgb(r, g, b)
-    }
+    use tw_colors::RGB;
 
     // ── Backgrounds ──────────────────────────────────────────────
-    pub const BG_ROOT: Color = tw(tw_colors::ZINC_950);
-    pub const BG_HEADER: Color = tw(tw_colors::ZINC_900);
-    pub const BG_FOOTER: Color = tw(tw_colors::ZINC_900);
-    pub const BG_PANEL: Color = tw(tw_colors::ZINC_800);
-    pub const BG_OVERLAY: Color = tw(tw_colors::ZINC_900);
+    pub const BG_ROOT: RGB = tw_colors::ZINC_950;
+    pub const BG_HEADER: RGB = tw_colors::ZINC_900;
+    pub const BG_FOOTER: RGB = tw_colors::ZINC_900;
+    pub const BG_PANEL: RGB = tw_colors::ZINC_800;
+    pub const BG_OVERLAY: RGB = tw_colors::ZINC_900;
 
     // ── Borders ──────────────────────────────────────────────────
-    pub const BORDER_HEADER: Color = tw(tw_colors::ZINC_800);
-    pub const BORDER_FOOTER: Color = tw(tw_colors::ZINC_800);
-    pub const BORDER_PANEL: Color = tw(tw_colors::ZINC_700);
+    pub const BORDER_HEADER: RGB = tw_colors::ZINC_800;
+    pub const BORDER_FOOTER: RGB = tw_colors::ZINC_800;
+    pub const BORDER_PANEL: RGB = tw_colors::ZINC_700;
 
     // ── Shadows ──────────────────────────────────────────────────
     pub const SHADOW_PANEL: Color = Color::from_af32rgb(0.3, 0, 0, 0);
 
     // ── Accent ───────────────────────────────────────────────────
-    pub const ACCENT: Color = tw(tw_colors::VIOLET_500);
-    pub const SUCCESS: Color = tw(tw_colors::EMERALD_400);
+    pub const ACCENT: RGB = tw_colors::VIOLET_500;
+    pub const SUCCESS: RGB = tw_colors::EMERALD_400;
 
     // ── Text ─────────────────────────────────────────────────────
-    pub const TEXT_PRIMARY: Color = tw(tw_colors::ZINC_50);
-    pub const TEXT_BODY: Color = tw(tw_colors::ZINC_200);
-    pub const TEXT_SECTION: Color = tw(tw_colors::ZINC_400);
-    pub const TEXT_SUBTITLE: Color = tw(tw_colors::ZINC_400);
-    pub const TEXT_HINT: Color = tw(tw_colors::ZINC_500);
-    pub const TEXT_MUTED: Color = tw(tw_colors::ZINC_600);
-    pub const TEXT_SEPARATOR: Color = tw(tw_colors::ZINC_600);
+    pub const TEXT_PRIMARY: RGB = tw_colors::ZINC_50;
+    pub const TEXT_BODY: RGB = tw_colors::ZINC_200;
+    pub const TEXT_SECTION: RGB = tw_colors::ZINC_400;
+    pub const TEXT_SUBTITLE: RGB = tw_colors::ZINC_400;
+    pub const TEXT_HINT: RGB = tw_colors::ZINC_500;
+    pub const TEXT_MUTED: RGB = tw_colors::ZINC_600;
+    pub const TEXT_SEPARATOR: RGB = tw_colors::ZINC_600;
 
     // ── Selection overlay ────────────────────────────────────────
     pub const SELECTION: Color = Color::from_af32rgb(0.5, 255, 0, 0);
