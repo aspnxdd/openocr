@@ -498,14 +498,11 @@ impl App for TextDisplayWindow {
                         serde_json::from_str::<Vec<ScreenshotData>>(&data).unwrap_or_default()
                     };
 
-                    history.insert(0, [entry]);
+                    history.insert(0, entry);
 
                     std::fs::create_dir_all(db_path.parent().unwrap()).unwrap();
-                    std::fs::write(
-                        &db_path,
-                        serde_json::to_string_pretty(&new_history).unwrap(),
-                    )
-                    .unwrap();
+                    std::fs::write(&db_path, serde_json::to_string_pretty(&history).unwrap())
+                        .unwrap();
 
                     std::fs::create_dir_all(screenshot_path_path_buf.parent().unwrap()).unwrap();
                     cropped.save(&screenshot_path_path_buf).unwrap();
