@@ -1,5 +1,6 @@
 use std::{borrow::Cow, time::Instant};
 
+use anyhow::{Context, Result};
 use base64::Engine;
 use freya::prelude::*;
 use rig::{
@@ -427,7 +428,13 @@ impl App for TextDisplayWindow {
                 }
                 dbg!("Capturing monitor: {}", monitor.name());
 
-                let image = monitor.capture_image().unwrap();
+                let image = match monitor.capture_image() {
+                    Ok(img) => img,
+                    Err(e) => {
+                        eprintln!("Failed to capture monitor image: {e:?}");
+                        return;
+                    }
+                };
                 let cropped = image::imageops::crop_imm(
                     &image,
                     x as u32,
@@ -437,20 +444,27 @@ impl App for TextDisplayWindow {
                 )
                 .to_image();
                 let mut bytes: Vec<u8> = Vec::new();
-                cropped
-                    .write_to(
-                        &mut std::io::Cursor::new(&mut bytes),
-                        image::ImageFormat::Png,
-                    )
-                    .unwrap();
+                if let Err(e) = cropped.write_to(
+                    &mut std::io::Cursor::new(&mut bytes),
+                    image::ImageFormat::Png,
+                ) {
+                    eprintln!("Failed to encode cropped image as PNG: {e:?}");
+                    return;
+                }
 
                 let base64_str = base64::engine::general_purpose::STANDARD.encode(&bytes);
 
-                let builder = openai::CompletionsClient::<ReqwestClient>::builder()
+                let client = match openai::CompletionsClient::<ReqwestClient>::builder()
                     .api_key("")
-                    .base_url(&url);
-
-                let client = builder.build().unwrap();
+                    .base_url(&url)
+                    .build()
+                {
+                    Ok(c) => c,
+                    Err(e) => {
+                        eprintln!("Failed to build OpenAI client: {e:?}");
+                        return;
+                    }
+                };
 
                 let preamble = "Extract the text from the \
                                                 following image and do not translate it.";
@@ -468,20 +482,34 @@ impl App for TextDisplayWindow {
                 };
 
                 spawn(async move {
-                    let response = agent.prompt(image).await.unwrap();
+                    let result: Result<()> = async {
+                        let response = agent
+                            .prompt(image)
+                            .await
+                            .context("LLM prompt request failed")?;
 
-                    let img = image::load_from_memory(&bytes).unwrap();
+                        let img = image::load_from_memory(&bytes)
+                            .context("Failed to load cropped image from memory")?;
 
-                    save_screenshot(&img, &response).unwrap();
+                        if let Err(e) = save_screenshot(&img, &response) {
+                            eprintln!("Failed to save screenshot: {e:?}");
+                        }
 
-                    dbg!("Response: {:#?}", &response);
+                        dbg!("Response: {:#?}", &response);
 
-                    text.set(response);
+                        text.set(response);
 
-                    if display_screenshot {
-                        img_bytes.set((Instant::now(), Bytes::from(bytes)));
+                        if display_screenshot {
+                            img_bytes.set((Instant::now(), Bytes::from(bytes)));
+                        }
+                        on_open(());
+                        Ok(())
                     }
-                    on_open(());
+                    .await;
+
+                    if let Err(e) = result {
+                        eprintln!("OCR capture failed: {e:?}");
+                    }
                 });
             })
             .on_mouse_move(move |e: Event<MouseEventData>| {
@@ -497,11 +525,12 @@ impl App for TextDisplayWindow {
     }
 }
 
-fn save_screenshot(image: &image::DynamicImage, response: &str) -> anyhow::Result<()> {
+fn save_screenshot(image: &image::DynamicImage, response: &str) -> Result<()> {
     let entry_id = uuid::Uuid::new_v4().to_string();
 
-    let screenshot_path_path_buf = dirs::home_dir()
-        .unwrap()
+    let home = dirs::home_dir().context("Could not determine home directory")?;
+
+    let screenshot_path_path_buf = home
         .join(".openocr")
         .join("screenshots")
         .join(format!("{}.png", entry_id));
@@ -512,15 +541,12 @@ fn save_screenshot(image: &image::DynamicImage, response: &str) -> anyhow::Resul
         screenshot_path: screenshot_path.clone(),
         created_at: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .context("System clock is before UNIX epoch")?
             .as_secs(),
         response: response.to_string(),
     };
 
-    let db_path = dirs::home_dir()
-        .unwrap()
-        .join(".openocr")
-        .join("history.json");
+    let db_path = home.join(".openocr").join("history.json");
 
     let mut history = {
         let data = std::fs::read_to_string(&db_path).unwrap_or_default();
@@ -529,10 +555,18 @@ fn save_screenshot(image: &image::DynamicImage, response: &str) -> anyhow::Resul
 
     history.insert(0, entry);
 
-    std::fs::create_dir_all(db_path.parent().unwrap())?;
+    std::fs::create_dir_all(
+        db_path
+            .parent()
+            .context("history.json path has no parent directory")?,
+    )?;
     std::fs::write(&db_path, serde_json::to_string_pretty(&history)?)?;
 
-    std::fs::create_dir_all(screenshot_path_path_buf.parent().unwrap())?;
+    std::fs::create_dir_all(
+        screenshot_path_path_buf
+            .parent()
+            .context("screenshot path has no parent directory")?,
+    )?;
     image.save(&screenshot_path_path_buf)?;
     Ok(())
 }
