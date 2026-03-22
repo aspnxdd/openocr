@@ -493,11 +493,9 @@ impl App for TextDisplayWindow {
                         .join(".openocr")
                         .join("history.json");
 
-                    let history = if db_path.exists() {
-                        let data = std::fs::read_to_string(&db_path).unwrap();
+                    let mut history = {
+                        let data = std::fs::read_to_string(&db_path).unwrap_or_default();
                         serde_json::from_str::<Vec<ScreenshotData>>(&data).unwrap_or_default()
-                    } else {
-                        Vec::new()
                     };
 
                     history.insert(0, [entry]);
