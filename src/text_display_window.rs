@@ -468,44 +468,11 @@ impl App for TextDisplayWindow {
                 };
 
                 spawn(async move {
-                    let entry_id = uuid::Uuid::new_v4().to_string();
                     let response = agent.prompt(image).await.unwrap();
 
-                    let screenshot_path_path_buf = dirs::home_dir()
-                        .unwrap()
-                        .join(".openocr")
-                        .join("screenshots")
-                        .join(format!("{}.png", entry_id));
+                    let img = image::load_from_memory(&bytes).unwrap();
 
-                    let screenshot_path = screenshot_path_path_buf.to_string_lossy().to_string();
-
-                    let entry: ScreenshotData = ScreenshotData {
-                        screenshot_path: screenshot_path.clone(),
-                        created_at: std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap()
-                            .as_secs(),
-                        response: response.clone(),
-                    };
-
-                    let db_path = dirs::home_dir()
-                        .unwrap()
-                        .join(".openocr")
-                        .join("history.json");
-
-                    let mut history = {
-                        let data = std::fs::read_to_string(&db_path).unwrap_or_default();
-                        serde_json::from_str::<Vec<ScreenshotData>>(&data).unwrap_or_default()
-                    };
-
-                    history.insert(0, entry);
-
-                    std::fs::create_dir_all(db_path.parent().unwrap()).unwrap();
-                    std::fs::write(&db_path, serde_json::to_string_pretty(&history).unwrap())
-                        .unwrap();
-
-                    std::fs::create_dir_all(screenshot_path_path_buf.parent().unwrap()).unwrap();
-                    cropped.save(&screenshot_path_path_buf).unwrap();
+                    save_screenshot(&img, &response).unwrap();
 
                     dbg!("Response: {:#?}", &response);
 
@@ -528,4 +495,44 @@ impl App for TextDisplayWindow {
                     .position(Position::new_absolute().top(y as f32).left(x as f32))
             }))
     }
+}
+
+fn save_screenshot(image: &image::DynamicImage, response: &str) -> anyhow::Result<()> {
+    let entry_id = uuid::Uuid::new_v4().to_string();
+
+    let screenshot_path_path_buf = dirs::home_dir()
+        .unwrap()
+        .join(".openocr")
+        .join("screenshots")
+        .join(format!("{}.png", entry_id));
+
+    let screenshot_path = screenshot_path_path_buf.to_string_lossy().to_string();
+
+    let entry: ScreenshotData = ScreenshotData {
+        screenshot_path: screenshot_path.clone(),
+        created_at: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs(),
+        response: response.to_string(),
+    };
+
+    let db_path = dirs::home_dir()
+        .unwrap()
+        .join(".openocr")
+        .join("history.json");
+
+    let mut history = {
+        let data = std::fs::read_to_string(&db_path).unwrap_or_default();
+        serde_json::from_str::<Vec<ScreenshotData>>(&data).unwrap_or_default()
+    };
+
+    history.insert(0, entry);
+
+    std::fs::create_dir_all(db_path.parent().unwrap())?;
+    std::fs::write(&db_path, serde_json::to_string_pretty(&history)?)?;
+
+    std::fs::create_dir_all(screenshot_path_path_buf.parent().unwrap())?;
+    image.save(&screenshot_path_path_buf)?;
+    Ok(())
 }
