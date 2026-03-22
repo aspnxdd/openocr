@@ -500,8 +500,7 @@ impl App for TextDisplayWindow {
                         Vec::new()
                     };
 
-                    let mut new_history = vec![entry];
-                    new_history.extend(history);
+                    history.insert(0, [entry]);
 
                     std::fs::create_dir_all(db_path.parent().unwrap()).unwrap();
                     std::fs::write(
