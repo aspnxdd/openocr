@@ -425,6 +425,7 @@ struct ScreenshotData {
     screenshot_path: String,
     created_at: u64,
     response: String,
+    
 }
 
 impl App for TextDisplayWindow {
