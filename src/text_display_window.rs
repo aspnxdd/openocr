@@ -92,7 +92,10 @@ impl ExpandedXY for Label {
 
 fn sub_app(img_bytes: State<(Instant, Bytes)>, text: State<String>) -> impl IntoElement {
     use_init_theme(|| DARK_THEME);
-    let (id, bytes) = img_bytes.read().clone();
+
+    let mut displayed_bytes = use_state(|| img_bytes.read().clone());
+
+    let mut displayed_text = use_state(|| text.read().clone());
 
     let mut copied = use_state(|| false);
 
@@ -130,16 +133,30 @@ fn sub_app(img_bytes: State<(Instant, Bytes)>, text: State<String>) -> impl Into
                         .child(
                             VirtualScrollView::new(move |i, _| {
                                 let entry = &filtered_history[i];
+                                let entry = entry.clone();
                                 let path_buf = PathBuf::from(&entry.screenshot_path);
-                                rect()
-                                    .margin(Gaps::new(4.0, 0.0, 4.0, 0.0))
-                                    .key(i)
-                                    .width(Size::Fill)
+                                Button::new()
+                                    .on_press(move |_| {
+                                        displayed_text.set(entry.response.clone());
+                                        displayed_bytes.set((
+                                            Instant::now(),
+                                            Bytes::from(
+                                                std::fs::read(&entry.screenshot_path)
+                                                    .unwrap_or_default(),
+                                            ),
+                                        ));
+                                    })
                                     .child(
-                                        ImageViewer::new(ImageSource::Path(path_buf))
-                                            .sampling_mode(SamplingMode::Trilinear),
+                                        rect()
+                                            .margin(Gaps::new(4.0, 0.0, 4.0, 0.0))
+                                            .key(i)
+                                            .width(Size::Fill)
+                                            .child(
+                                                ImageViewer::new(ImageSource::Path(path_buf))
+                                                    .sampling_mode(SamplingMode::Trilinear),
+                                            ),
                                     )
-                                    .into_element()
+                                    .into()
                             })
                             .length(len)
                             .item_size(50.)
@@ -254,7 +271,7 @@ fn sub_app(img_bytes: State<(Instant, Bytes)>, text: State<String>) -> impl Into
                                         .center()
                                         .padding(8.0)
                                         .child(
-                                            ImageViewer::new((&id, bytes))
+                                            ImageViewer::new(displayed_bytes.read().clone())
                                                 .sampling_mode(SamplingMode::Trilinear),
                                         ),
                                 ),
@@ -316,8 +333,10 @@ fn sub_app(img_bytes: State<(Instant, Bytes)>, text: State<String>) -> impl Into
                                                     .font_size(15.0)
                                                     .color(colors::TEXT_BODY)
                                                     .child(
-                                                        SelectableText::new(text.read().clone())
-                                                            .into_element(),
+                                                        SelectableText::new(
+                                                            displayed_text.read().clone(),
+                                                        )
+                                                        .into_element(),
                                                     ),
                                             ),
                                         ),
@@ -342,9 +361,9 @@ fn sub_app(img_bytes: State<(Instant, Bytes)>, text: State<String>) -> impl Into
                                         .child(
                                             Button::new()
                                                 .on_press(move |_| {
-                                                    if let Err(e) =
-                                                        Clipboard::set(text.read().clone())
-                                                    {
+                                                    if let Err(e) = Clipboard::set(
+                                                        displayed_text.read().clone(),
+                                                    ) {
                                                         eprintln!(
                                                             "Failed to copy to clipboard: {:?}",
                                                             e
