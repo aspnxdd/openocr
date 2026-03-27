@@ -105,7 +105,7 @@ fn sub_app(img_bytes: State<(Instant, Bytes)>, text: State<String>) -> impl Into
 
     dbg!("history: {:#?}", &filtered_history);
 
-    let len = filtered_history.len() as i32;
+    let len = filtered_history.len();
 
     // Root container: dark background, vertical layout
     rect()
