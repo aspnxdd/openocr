@@ -1,20 +1,14 @@
 use std::{borrow::Cow, path::PathBuf, time::Instant};
 
-use anyhow::{Context, Result};
-use base64::Engine;
 use freya::prelude::*;
-use rig::{
-    client::CompletionClient,
-    completion::Prompt,
-    http_client::ReqwestClient,
-    message::{DocumentSourceKind, Image, ImageDetail, ImageMediaType},
-    providers::openai,
-};
-use serde::{Deserialize, Serialize};
 use xcap::Monitor;
 
+use crate::history;
+
+// ── Color palette ────────────────────────────────────────────────────────────
+
 /// Color palette for the application UI, built on Tailwind CSS v4 colors.
-mod colors {
+pub mod colors {
     use freya::prelude::Color;
     use tw_colors::RGB;
 
@@ -50,12 +44,7 @@ mod colors {
     pub const SELECTION: Color = Color::from_af32rgb(0.5, 255, 0, 0);
 }
 
-pub struct TextDisplayWindow {
-    pub model: Cow<'static, str>,
-    pub url: Cow<'static, str>,
-    pub display_screenshot: bool,
-    pub monitor: Monitor,
-}
+// ── Layout helpers ───────────────────────────────────────────────────────────
 
 pub trait ExpandedXY {
     #[allow(dead_code)]
@@ -90,7 +79,145 @@ impl ExpandedXY for Label {
     }
 }
 
-fn sub_app(img_bytes: State<(Instant, Bytes)>, text: State<String>) -> impl IntoElement {
+// ── Overlay (screen selection) ───────────────────────────────────────────────
+
+pub struct TextDisplayWindow {
+    pub model: Cow<'static, str>,
+    pub url: Cow<'static, str>,
+    pub display_screenshot: bool,
+    pub monitor: Monitor,
+}
+
+impl App for TextDisplayWindow {
+    fn render(&self) -> impl IntoElement {
+        let mut img_bytes = use_state(|| (Instant::now(), Bytes::default()));
+        let mut text = use_state(String::new);
+
+        let mut start = use_state(|| CursorPoint::new(0.0, 0.0));
+        let mut end = use_state(|| CursorPoint::new(0.0, 0.0));
+
+        let mut should_capture = use_state(|| false);
+
+        let mut is_opened = use_state(|| false);
+
+        let width = (end.read().x - start.read().x).abs() as f32;
+        let height = (end.read().y - start.read().y).abs() as f32;
+
+        let url = self.url.clone();
+        let model = self.model.clone().to_string();
+        let display_screenshot = self.display_screenshot;
+        let monitor = self.monitor.clone();
+
+        let x = start.read().x.min(end.read().x);
+        let y = start.read().y.min(end.read().y);
+
+        let on_open = move |_| {
+            if *is_opened.read() {
+                return;
+            }
+            spawn(async move {
+                Platform::get()
+                    .launch_window(
+                        WindowConfig::new(move || result_window(img_bytes, text))
+                            .with_title("OpenOCR"),
+                    )
+                    .await;
+                is_opened.set(true);
+            });
+        };
+
+        rect()
+            .expanded()
+            .opacity(0.4)
+            .background(colors::BG_OVERLAY)
+            .on_global_key_down(move |e: Event<KeyboardEventData>| {
+                if e.key.eq(&Key::Named(NamedKey::Escape)) {
+                    std::process::exit(0);
+                }
+            })
+            .on_mouse_down(move |e: Event<MouseEventData>| {
+                start.set(e.global_location);
+                should_capture.set(true);
+            })
+            .on_mouse_up(move |e: Event<MouseEventData>| {
+                end.set(e.global_location);
+                should_capture.set(false);
+                if width < 10.0 || height < 10.0 {
+                    return;
+                }
+                dbg!("Capturing monitor: {}", monitor.name());
+
+                let image = match monitor.capture_image() {
+                    Ok(img) => img,
+                    Err(e) => {
+                        eprintln!("Failed to capture monitor image: {e:?}");
+                        return;
+                    }
+                };
+                let cropped = image::imageops::crop_imm(
+                    &image,
+                    x as u32,
+                    y as u32,
+                    width as u32,
+                    height as u32,
+                )
+                .to_image();
+                let mut bytes: Vec<u8> = Vec::new();
+                if let Err(e) = cropped.write_to(
+                    &mut std::io::Cursor::new(&mut bytes),
+                    image::ImageFormat::Png,
+                ) {
+                    eprintln!("Failed to encode cropped image as PNG: {e:?}");
+                    return;
+                }
+
+                let url = url.clone();
+                let model = model.clone();
+
+                spawn(async move {
+                    let result: anyhow::Result<()> = async {
+                        let response = crate::ocr::perform_ocr(&url, &model, &bytes).await?;
+
+                        let img = image::load_from_memory(&bytes)
+                            .map_err(|e| anyhow::anyhow!("Failed to load cropped image: {e}"))?;
+
+                        if let Err(e) = history::save_screenshot(&img, &response) {
+                            eprintln!("Failed to save screenshot: {e:?}");
+                        }
+
+                        dbg!("Response: {:#?}", &response);
+
+                        text.set(response);
+
+                        if display_screenshot {
+                            img_bytes.set((Instant::now(), Bytes::from(bytes)));
+                        }
+                        on_open(());
+                        Ok(())
+                    }
+                    .await;
+
+                    if let Err(e) = result {
+                        eprintln!("OCR capture failed: {e:?}");
+                    }
+                });
+            })
+            .on_mouse_move(move |e: Event<MouseEventData>| {
+                end.set(e.global_location);
+            })
+            .maybe_child(should_capture.read().then(|| {
+                rect()
+                    .width(Size::px(width))
+                    .height(Size::px(height))
+                    .background(colors::SELECTION)
+                    .position(Position::new_absolute().top(y as f32).left(x as f32))
+            }))
+    }
+}
+
+// ── Result window ────────────────────────────────────────────────────────────
+
+fn result_window(img_bytes: State<(Instant, Bytes)>, text: State<String>) -> impl IntoElement {
     use_init_theme(|| DARK_THEME);
 
     let mut displayed_bytes = use_state(|| img_bytes.read().clone());
@@ -99,9 +226,8 @@ fn sub_app(img_bytes: State<(Instant, Bytes)>, text: State<String>) -> impl Into
 
     let mut copied = use_state(|| false);
 
-    let history = get_history().unwrap_or_default();
-
-    let filtered_history = history
+    let filtered_history = history::get_history()
+        .unwrap_or_default()
         .into_iter()
         .filter(|e| std::path::Path::new(&e.screenshot_path).exists())
         .collect::<Vec<_>>();
@@ -110,12 +236,13 @@ fn sub_app(img_bytes: State<(Instant, Bytes)>, text: State<String>) -> impl Into
 
     let len = filtered_history.len();
 
-    // Root container: dark background, vertical layout
+    // Root container: dark background, horizontal layout
     rect()
         .expanded()
         .content(Content::Flex)
         .horizontal()
         .spacing(5.0)
+        // ── Sidebar: history thumbnails ──────────────────────────────
         .child(
             rect()
                 .height(Size::Fill)
@@ -164,13 +291,14 @@ fn sub_app(img_bytes: State<(Instant, Bytes)>, text: State<String>) -> impl Into
                         ),
                 ),
         )
+        // ── Main content area ────────────────────────────────────────
         .child(
             rect()
                 .expanded()
                 .background(colors::BG_ROOT)
                 .content(Content::Flex)
                 .vertical()
-                // ── Header bar ──────────────────────────────────────────────
+                // ── Header bar ──────────────────────────────────────────
                 .child(
                     rect()
                         .width(Size::Fill)
@@ -212,7 +340,7 @@ fn sub_app(img_bytes: State<(Instant, Bytes)>, text: State<String>) -> impl Into
                                 .color(colors::TEXT_SUBTITLE),
                         ),
                 )
-                // ── Main content area (two panels) ──────────────────────────
+                // ── Main content area (two panels) ──────────────────────
                 .child(
                     rect()
                         .width(Size::Fill)
@@ -222,7 +350,7 @@ fn sub_app(img_bytes: State<(Instant, Bytes)>, text: State<String>) -> impl Into
                         .content(Content::Flex)
                         .horizontal()
                         .cross_align(Alignment::Start)
-                        // ── Left panel: Screenshot ───────────────────────────
+                        // ── Left panel: Screenshot ───────────────────────
                         .child(
                             rect()
                                 .expanded_y()
@@ -231,27 +359,7 @@ fn sub_app(img_bytes: State<(Instant, Bytes)>, text: State<String>) -> impl Into
                                 .vertical()
                                 .spacing(12.0)
                                 // Section header
-                                .child(
-                                    rect()
-                                        .width(Size::Fill)
-                                        .content(Content::Flex)
-                                        .horizontal()
-                                        .cross_align(Alignment::Center)
-                                        .spacing(8.0)
-                                        .child(
-                                            svg(freya::icons::lucide::image())
-                                                .color(colors::ACCENT)
-                                                .width(Size::px(16.0))
-                                                .height(Size::px(16.0)),
-                                        )
-                                        .child(
-                                            label()
-                                                .text("Screenshot")
-                                                .font_size(13.0)
-                                                .font_weight(FontWeight::SEMI_BOLD)
-                                                .color(colors::TEXT_SECTION),
-                                        ),
-                                )
+                                .child(section_header(freya::icons::lucide::image(), "Screenshot"))
                                 // Image container
                                 .child(
                                     rect()
@@ -259,14 +367,7 @@ fn sub_app(img_bytes: State<(Instant, Bytes)>, text: State<String>) -> impl Into
                                         .background(colors::BG_PANEL)
                                         .rounded_lg()
                                         .border(Border::new().width(1.0).fill(colors::BORDER_PANEL))
-                                        .shadow(
-                                            Shadow::new()
-                                                .x(0.0)
-                                                .y(4.0)
-                                                .blur(16.0)
-                                                .spread(0.0)
-                                                .color(colors::SHADOW_PANEL),
-                                        )
+                                        .shadow(panel_shadow())
                                         .overflow(Overflow::Clip)
                                         .center()
                                         .padding(8.0)
@@ -276,7 +377,7 @@ fn sub_app(img_bytes: State<(Instant, Bytes)>, text: State<String>) -> impl Into
                                         ),
                                 ),
                         )
-                        // ── Right panel: Extracted text ─────────────────────
+                        // ── Right panel: Extracted text ─────────────────
                         .child(
                             rect()
                                 .expanded_y()
@@ -285,28 +386,10 @@ fn sub_app(img_bytes: State<(Instant, Bytes)>, text: State<String>) -> impl Into
                                 .vertical()
                                 .spacing(12.0)
                                 // Section header
-                                .child(
-                                    rect()
-                                        .width(Size::Fill)
-                                        .content(Content::Flex)
-                                        .horizontal()
-                                        .cross_align(Alignment::Center)
-                                        .main_align(Alignment::Start)
-                                        .spacing(8.0)
-                                        .child(
-                                            svg(freya::icons::lucide::file_text())
-                                                .color(colors::ACCENT)
-                                                .width(Size::px(16.0))
-                                                .height(Size::px(16.0)),
-                                        )
-                                        .child(
-                                            label()
-                                                .text("Extracted Text")
-                                                .font_size(13.0)
-                                                .font_weight(FontWeight::SEMI_BOLD)
-                                                .color(colors::TEXT_SECTION),
-                                        ),
-                                )
+                                .child(section_header(
+                                    freya::icons::lucide::file_text(),
+                                    "Extracted Text",
+                                ))
                                 // Text content area with scrolling
                                 .child(
                                     rect()
@@ -314,14 +397,7 @@ fn sub_app(img_bytes: State<(Instant, Bytes)>, text: State<String>) -> impl Into
                                         .background(colors::BG_PANEL)
                                         .rounded_lg()
                                         .border(Border::new().width(1.0).fill(colors::BORDER_PANEL))
-                                        .shadow(
-                                            Shadow::new()
-                                                .x(0.0)
-                                                .y(4.0)
-                                                .blur(16.0)
-                                                .spread(0.0)
-                                                .color(colors::SHADOW_PANEL),
-                                        )
+                                        .shadow(panel_shadow())
                                         .content(Content::Flex)
                                         .vertical()
                                         .padding(20.0)
@@ -417,7 +493,7 @@ fn sub_app(img_bytes: State<(Instant, Bytes)>, text: State<String>) -> impl Into
                                 ),
                         ),
                 )
-                // ── Footer ──────────────────────────────────────────────────
+                // ── Footer ──────────────────────────────────────────────
                 .child(
                     rect()
                         .width(Size::Fill)
@@ -439,217 +515,35 @@ fn sub_app(img_bytes: State<(Instant, Bytes)>, text: State<String>) -> impl Into
         )
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-struct ScreenshotData {
-    screenshot_path: String,
-    created_at: u64,
-    response: String,
+/// A reusable section header with an icon and label.
+fn section_header(icon: Bytes, title: &'static str) -> Rect {
+    rect()
+        .width(Size::Fill)
+        .content(Content::Flex)
+        .horizontal()
+        .cross_align(Alignment::Center)
+        .spacing(8.0)
+        .child(
+            svg(icon)
+                .color(colors::ACCENT)
+                .width(Size::px(16.0))
+                .height(Size::px(16.0)),
+        )
+        .child(
+            label()
+                .text(title)
+                .font_size(13.0)
+                .font_weight(FontWeight::SEMI_BOLD)
+                .color(colors::TEXT_SECTION),
+        )
 }
 
-impl App for TextDisplayWindow {
-    fn render(&self) -> impl IntoElement {
-        let mut img_bytes = use_state(|| (Instant::now(), Bytes::default()));
-        let mut text = use_state(String::new);
-
-        let mut start = use_state(|| CursorPoint::new(0.0, 0.0));
-        let mut end = use_state(|| CursorPoint::new(0.0, 0.0));
-
-        let mut should_capture = use_state(|| false);
-
-        let mut is_opened = use_state(|| false);
-
-        let width = (end.read().x - start.read().x).abs() as f32;
-        let height = (end.read().y - start.read().y).abs() as f32;
-
-        let url = self.url.clone();
-        let model = self.model.clone().to_string();
-        let display_screenshot = self.display_screenshot;
-        let monitor = self.monitor.clone();
-
-        let x = start.read().x.min(end.read().x);
-        let y = start.read().y.min(end.read().y);
-
-        let on_open = move |_| {
-            if *is_opened.read() {
-                return;
-            }
-            spawn(async move {
-                Platform::get()
-                    .launch_window(
-                        WindowConfig::new(move || sub_app(img_bytes, text)).with_title("OpenOCR"),
-                    )
-                    .await;
-                is_opened.set(true);
-            });
-        };
-
-        rect()
-            .expanded()
-            .opacity(0.4)
-            .background(colors::BG_OVERLAY)
-            .on_global_key_down(move |e: Event<KeyboardEventData>| {
-                if e.key.eq(&Key::Named(NamedKey::Escape)) {
-                    std::process::exit(0);
-                }
-            })
-            .on_mouse_down(move |e: Event<MouseEventData>| {
-                start.set(e.global_location);
-                should_capture.set(true);
-            })
-            .on_mouse_up(move |e: Event<MouseEventData>| {
-                end.set(e.global_location);
-                should_capture.set(false);
-                if width < 10.0 || height < 10.0 {
-                    return;
-                }
-                dbg!("Capturing monitor: {}", monitor.name());
-
-                let image = match monitor.capture_image() {
-                    Ok(img) => img,
-                    Err(e) => {
-                        eprintln!("Failed to capture monitor image: {e:?}");
-                        return;
-                    }
-                };
-                let cropped = image::imageops::crop_imm(
-                    &image,
-                    x as u32,
-                    y as u32,
-                    width as u32,
-                    height as u32,
-                )
-                .to_image();
-                let mut bytes: Vec<u8> = Vec::new();
-                if let Err(e) = cropped.write_to(
-                    &mut std::io::Cursor::new(&mut bytes),
-                    image::ImageFormat::Png,
-                ) {
-                    eprintln!("Failed to encode cropped image as PNG: {e:?}");
-                    return;
-                }
-
-                let base64_str = base64::engine::general_purpose::STANDARD.encode(&bytes);
-
-                let client = match openai::CompletionsClient::<ReqwestClient>::builder()
-                    .api_key("")
-                    .base_url(&url)
-                    .build()
-                {
-                    Ok(c) => c,
-                    Err(e) => {
-                        eprintln!("Failed to build OpenAI client: {e:?}");
-                        return;
-                    }
-                };
-
-                let preamble = "Extract the text from the \
-                                                following image and do not translate it.";
-
-                let m = model.clone();
-
-                let agent = client.agent(&m).preamble(preamble).temperature(0.5).build();
-
-                let image = Image {
-                    data: DocumentSourceKind::base64(&base64_str),
-                    media_type: Some(ImageMediaType::PNG),
-                    detail: Some(ImageDetail::Auto),
-                    additional_params: None,
-                    ..Default::default()
-                };
-
-                spawn(async move {
-                    let result: Result<()> = async {
-                        let response = agent
-                            .prompt(image)
-                            .await
-                            .context("LLM prompt request failed")?;
-
-                        let img = image::load_from_memory(&bytes)
-                            .context("Failed to load cropped image from memory")?;
-
-                        if let Err(e) = save_screenshot(&img, &response) {
-                            eprintln!("Failed to save screenshot: {e:?}");
-                        }
-
-                        dbg!("Response: {:#?}", &response);
-
-                        text.set(response);
-
-                        if display_screenshot {
-                            img_bytes.set((Instant::now(), Bytes::from(bytes)));
-                        }
-                        on_open(());
-                        Ok(())
-                    }
-                    .await;
-
-                    if let Err(e) = result {
-                        eprintln!("OCR capture failed: {e:?}");
-                    }
-                });
-            })
-            .on_mouse_move(move |e: Event<MouseEventData>| {
-                end.set(e.global_location);
-            })
-            .maybe_child(should_capture.read().then(|| {
-                rect()
-                    .width(Size::px(width))
-                    .height(Size::px(height))
-                    .background(colors::SELECTION)
-                    .position(Position::new_absolute().top(y as f32).left(x as f32))
-            }))
-    }
-}
-
-fn save_screenshot(image: &image::DynamicImage, response: &str) -> Result<()> {
-    let entry_id = uuid::Uuid::new_v4().to_string();
-
-    let home = dirs::home_dir().context("Could not determine home directory")?;
-
-    let screenshot_path_path_buf = home
-        .join(".openocr")
-        .join("screenshots")
-        .join(format!("{}.png", entry_id));
-
-    let screenshot_path = screenshot_path_path_buf.to_string_lossy().to_string();
-
-    let entry: ScreenshotData = ScreenshotData {
-        screenshot_path: screenshot_path.clone(),
-        created_at: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .context("System clock is before UNIX epoch")?
-            .as_secs(),
-        response: response.to_string(),
-    };
-
-    let db_path = home.join(".openocr").join("history.json");
-
-    let mut history = {
-        let data = std::fs::read_to_string(&db_path).unwrap_or_default();
-        serde_json::from_str::<Vec<ScreenshotData>>(&data).unwrap_or_default()
-    };
-
-    history.insert(0, entry);
-
-    std::fs::create_dir_all(
-        db_path
-            .parent()
-            .context("history.json path has no parent directory")?,
-    )?;
-    std::fs::write(&db_path, serde_json::to_string_pretty(&history)?)?;
-
-    std::fs::create_dir_all(
-        screenshot_path_path_buf
-            .parent()
-            .context("screenshot path has no parent directory")?,
-    )?;
-    image.save(&screenshot_path_path_buf)?;
-    Ok(())
-}
-
-fn get_history() -> Result<Vec<ScreenshotData>> {
-    let home = dirs::home_dir().context("Could not determine home directory")?;
-    let db_path = home.join(".openocr").join("history.json");
-    let data = std::fs::read_to_string(&db_path).unwrap_or_default();
-    serde_json::from_str::<Vec<ScreenshotData>>(&data).map_err(|e| anyhow::anyhow!(e))
+/// Shared panel shadow style.
+fn panel_shadow() -> Shadow {
+    Shadow::new()
+        .x(0.0)
+        .y(4.0)
+        .blur(16.0)
+        .spread(0.0)
+        .color(colors::SHADOW_PANEL)
 }

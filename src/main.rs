@@ -2,9 +2,11 @@ use clap::Parser;
 use freya::prelude::*;
 use freya::winit;
 use std::error::Error;
-use text_display_window::TextDisplayWindow;
+use ui::TextDisplayWindow;
 
-mod text_display_window;
+mod history;
+mod ocr;
+mod ui;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
