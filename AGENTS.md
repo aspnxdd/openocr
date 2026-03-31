@@ -6,13 +6,15 @@
 
 ## Architecture
 
-The codebase is compact (~260 lines across 2 source files) and follows a single-responsibility split:
+The codebase is split across 4 source files, each with a single responsibility:
 
 ```
 src/
-  main.rs                    # Entry point: CLI parsing, monitor enumeration, window launch
-  text_display_window.rs     # Core logic: overlay rendering, region selection, screenshot
-                             #   capture, LLM OCR request, result display window
+  main.rs      # Entry point: CLI parsing, monitor enumeration, window launch
+  ui.rs        # All UI code: color palette, layout helpers, overlay selection,
+               #   result display window
+  ocr.rs       # LLM interaction: client construction, image prompt, response
+  history.rs   # Persistence: screenshot data model, save/load history
 ```
 
 ### `main.rs` (entry point)
@@ -23,25 +25,34 @@ src/
 - Each window runs a `TextDisplayWindow` app instance
 - Launches the Freya event loop with `launch(launch_config)`
 
-### `text_display_window.rs` (GUI + OCR)
+### `ui.rs` (GUI)
 
+- **`colors` module**: Tailwind CSS v4-based color palette constants (backgrounds, borders, text, accents)
+- **`ExpandedXY` trait**: Layout helper for expanding width/height on `Rect` and `Label` elements
 - **`TextDisplayWindow`** struct holds config: `model`, `url`, `display_screenshot`, `monitor`
-- Implements `freya::prelude::App` trait; the `render()` method returns the element tree
-- **State hooks** (React-like): `use_state()` for cursor positions (`start`, `end`), `should_capture`, `is_opened`, `img_bytes`, `text`
-- **Overlay**: Semi-transparent dark rect covering the full screen (`opacity: 0.4`, `background: rgb(25,25,25)`)
-- **Selection**: Red semi-transparent rectangle drawn between mouse-down and mouse-up positions
-- **Capture flow** (on mouse-up, if region > 10x10 px):
-  1. `xcap` captures the full monitor image
-  2. `image::imageops::crop_imm` crops to the selected region
-  3. Cropped image encoded as PNG then base64
-  4. `rig-core`'s `openai::CompletionsClient` sends the image to the LLM API
-  5. System preamble: `"Extract the text from the following image and do not translate it."`
-  6. Response text stored in state
-- **Result window**: `sub_app` function launched via `Platform::get().launch_window()`. Contains:
-  - `ImageViewer` showing the screenshot (if `display_screenshot` is true)
-  - `label` with the extracted text
-  - `Button` with a copy icon to copy text to clipboard
+  - Implements `freya::prelude::App` trait; the `render()` method returns the overlay element tree
+  - **State hooks** (React-like): `use_state()` for cursor positions (`start`, `end`), `should_capture`, `is_opened`, `img_bytes`, `text`
+  - **Overlay**: Semi-transparent dark rect covering the full screen
+  - **Selection**: Red semi-transparent rectangle drawn between mouse-down and mouse-up positions
+  - **Capture flow** (on mouse-up, if region > 10x10 px): captures monitor, crops to selection, encodes as PNG, calls `ocr::perform_ocr()`, saves via `history::save_screenshot()`
+- **`result_window`** function launched via `Platform::get().launch_window()`:
+  - Sidebar with scrollable history thumbnails
+  - `ImageViewer` showing the screenshot
+  - Selectable text area with extracted text
+  - Copy-to-clipboard button with feedback
+- **Reusable helpers**: `section_header()` (icon + label, used by both panels) and `panel_shadow()` (shared shadow style)
 - **ESC key** exits the application via `std::process::exit(0)`
+
+### `ocr.rs` (LLM interaction)
+
+- **`perform_ocr(url, model, png_bytes) -> Result<String>`**: async function that encodes the image as base64, builds an OpenAI-compatible client via `rig-core`, constructs an agent with a system preamble, sends the image prompt, and returns the extracted text
+- Constants: `PREAMBLE`, `TEMPERATURE`
+
+### `history.rs` (persistence)
+
+- **`ScreenshotData`** struct: serializable record with `screenshot_path`, `created_at`, `response`
+- **`save_screenshot(image, response)`**: saves the image as PNG to `~/.openocr/screenshots/` and appends an entry to `~/.openocr/history.json`
+- **`get_history()`**: reads and deserializes the history JSON file
 
 ## Application Flow
 
@@ -57,7 +68,7 @@ CLI args -> enumerate monitors -> create fullscreen overlay per monitor
 
 | Crate       | Purpose                                                                          |
 | ----------- | -------------------------------------------------------------------------------- |
-| `freya`     | GUI framework (Skia + winit). Pinned to a specific PR: `refs/pull/1655/head`     |
+| `freya`     | GUI framework (Skia + winit). Pinned to a specific git rev                      |
 | `xcap`      | Cross-platform screen capture and monitor enumeration                            |
 | `rig-core`  | LLM client framework; used for the OpenAI-compatible API call                    |
 | `image`     | Image cropping (crop captured screenshot to selected region)                     |
@@ -94,7 +105,7 @@ just f
 
 ## Known Issues and Quirks
 
-- **Freya is pinned to a PR branch** (`refs/pull/1655/head`), not a released version. This may break if the PR is force-pushed or merged.
+- **Freya is pinned to a specific git rev** (`f33c70c`), not a released version. This may break if the upstream repo changes.
 - **`ollama-rs`** is listed in `Cargo.toml` but is not used in any source file. It is a leftover from earlier development.
 - **No tests** exist in the project.
 - **`std::process::exit(0)`** is used for ESC key handling -- this is abrupt and skips any cleanup.

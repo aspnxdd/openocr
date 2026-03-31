@@ -4,6 +4,8 @@ A lightweight desktop OCR tool built with Rust. Select any region of your screen
 
 Built with [Freya](https://github.com/marc2332/freya), a native Rust GUI framework powered by Skia and winit.
 
+![demo](demo.png)
+
 ## How It Works
 
 1. **Launch** -- openocr creates a transparent fullscreen overlay on each connected monitor
@@ -46,32 +48,22 @@ cargo run --release -- --display-screenshot false
 
 ### CLI Options
 
-| Flag | Short | Default | Description |
-|---|---|---|---|
-| `--model` | `-m` | `allenai/olmocr-2-7b` | LLM model name for OCR |
-| `--url` | `-u` | `http://localhost:1234/v1` | OpenAI-compatible API base URL |
-| `--display-screenshot` | `-d` | `true` | Show the captured screenshot in the result window |
-
-## Project Structure
-
-```
-src/
-  main.rs                    # Entry point, CLI parsing, monitor setup
-  text_display_window.rs     # Overlay UI, screen capture, LLM OCR, result display
-```
-
-The entire application is ~260 lines of Rust across two files.
+| Flag                   | Short | Default                    | Description                                       |
+| ---------------------- | ----- | -------------------------- | ------------------------------------------------- |
+| `--model`              | `-m`  | `allenai/olmocr-2-7b`      | LLM model name for OCR                            |
+| `--url`                | `-u`  | `http://localhost:1234/v1` | OpenAI-compatible API base URL                    |
+| `--display-screenshot` | `-d`  | `true`                     | Show the captured screenshot in the result window |
 
 ## Key Dependencies
 
-| Crate | Role |
-|---|---|
-| [freya](https://github.com/marc2332/freya) | GUI framework (Skia + winit) |
-| [xcap](https://crates.io/crates/xcap) | Screen capture and monitor enumeration |
-| [rig-core](https://crates.io/crates/rig-core) | LLM client (OpenAI-compatible API) |
-| [image](https://crates.io/crates/image) | Image cropping |
-| [clap](https://crates.io/crates/clap) | CLI argument parsing |
-| [tokio](https://crates.io/crates/tokio) | Async runtime |
+| Crate                                         | Role                                   |
+| --------------------------------------------- | -------------------------------------- |
+| [freya](https://github.com/marc2332/freya)    | GUI framework (Skia + winit)           |
+| [xcap](https://crates.io/crates/xcap)         | Screen capture and monitor enumeration |
+| [rig-core](https://crates.io/crates/rig-core) | LLM client (OpenAI-compatible API)     |
+| [image](https://crates.io/crates/image)       | Image cropping                         |
+| [clap](https://crates.io/crates/clap)         | CLI argument parsing                   |
+| [tokio](https://crates.io/crates/tokio)       | Async runtime                          |
 
 ## Development
 
