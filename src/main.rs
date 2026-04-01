@@ -1,7 +1,6 @@
 use clap::Parser;
 use freya::prelude::*;
 use freya::winit;
-use std::error::Error;
 use ui::TextDisplayWindow;
 
 mod history;
@@ -24,25 +23,21 @@ struct Args {
     display_screenshot: bool,
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
-    // #[cfg(debug_assertions)]
-    // tracing_subscriber::registry()
-    //     .with(tracing_subscriber::fmt::layer())
-    //     .init();
+fn main() {
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("Failed to build Tokio runtime");
+    let _guard = rt.enter();
 
     let args = Args::parse();
 
-    let mut url = "http://localhost:1234/v1".to_string();
-    if let Some(u) = args.url {
-        url = u;
-    }
-
-    let mut model = "allenai/olmocr-2-7b".to_string();
-    if let Some(m) = args.model {
-        model = m;
-    }
-
+    let url = args
+        .url
+        .unwrap_or_else(|| "http://localhost:1234/v1".to_string());
+    let model = args
+        .model
+        .unwrap_or_else(|| "allenai/olmocr-2-7b".to_string());
     let display_screenshot = args.display_screenshot;
 
     dbg!("Using model: {}", &model);
@@ -79,6 +74,4 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
 
     launch(launch_config);
-
-    Ok(())
 }
