@@ -44,41 +44,6 @@ pub mod colors {
     pub const SELECTION: Color = Color::from_af32rgb(0.5, 255, 0, 0);
 }
 
-// ── Layout helpers ───────────────────────────────────────────────────────────
-
-pub trait ExpandedXY {
-    #[allow(dead_code)]
-    /// Expand the `width` using [Size::fill()].
-    fn expanded_x(self) -> Self;
-
-    /// Expand the `height` using [Size::fill()].
-    fn expanded_y(self) -> Self;
-}
-
-impl ExpandedXY for Rect {
-    fn expanded_x(mut self) -> Self {
-        self.get_layout().layout.width = Size::fill();
-        self
-    }
-
-    fn expanded_y(mut self) -> Self {
-        self.get_layout().layout.height = Size::fill();
-        self
-    }
-}
-
-impl ExpandedXY for Label {
-    fn expanded_x(mut self) -> Self {
-        self.get_layout().layout.width = Size::fill();
-        self
-    }
-
-    fn expanded_y(mut self) -> Self {
-        self.get_layout().layout.height = Size::fill();
-        self
-    }
-}
-
 // ── Overlay (screen selection) ───────────────────────────────────────────────
 
 pub struct TextDisplayWindow {
@@ -226,15 +191,19 @@ fn result_window(img_bytes: State<(Instant, Bytes)>, text: State<String>) -> imp
 
     let mut copied = use_state(|| false);
 
-    let filtered_history = history::get_history()
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|e| std::path::Path::new(&e.screenshot_path).exists())
-        .collect::<Vec<_>>();
+    // Load history once on mount instead of every render.
+    let mut filtered_history = use_state::<Vec<history::ScreenshotData>>(Vec::new);
+    use_hook(move || {
+        let history = history::get_history()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|e| std::path::Path::new(&e.screenshot_path).exists())
+            .collect::<Vec<_>>();
+        dbg!("history: {:#?}", &history);
+        filtered_history.set(history);
+    });
 
-    dbg!("history: {:#?}", &filtered_history);
-
-    let len = filtered_history.len();
+    let len = filtered_history.read().len();
 
     // Root container: dark background, horizontal layout
     rect()
@@ -259,8 +228,8 @@ fn result_window(img_bytes: State<(Instant, Bytes)>, text: State<String>) -> imp
                         .spacing(8.0)
                         .child(
                             VirtualScrollView::new(move |i, _| {
-                                let entry = &filtered_history[i];
-                                let entry = entry.clone();
+                                let history = filtered_history.read();
+                                let entry = history[i].clone();
                                 let path_buf = PathBuf::from(&entry.screenshot_path);
                                 Button::new()
                                     .on_press(move |_| {
@@ -353,7 +322,7 @@ fn result_window(img_bytes: State<(Instant, Bytes)>, text: State<String>) -> imp
                         // ── Left panel: Screenshot ───────────────────────
                         .child(
                             rect()
-                                .expanded_y()
+                                .height(Size::fill())
                                 .width(Size::percent(40.0))
                                 .content(Content::Flex)
                                 .vertical()
@@ -380,7 +349,7 @@ fn result_window(img_bytes: State<(Instant, Bytes)>, text: State<String>) -> imp
                         // ── Right panel: Extracted text ─────────────────
                         .child(
                             rect()
-                                .expanded_y()
+                                .height(Size::fill())
                                 .width(Size::percent(60.0))
                                 .content(Content::Flex)
                                 .vertical()
