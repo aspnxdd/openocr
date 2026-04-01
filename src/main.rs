@@ -24,8 +24,6 @@ struct Args {
 }
 
 fn main() {
-    // Create a Tokio runtime and enter its context so that Tokio-based crates
-    // (reqwest, rig-core, etc.) work inside Freya's own async runtime.
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
