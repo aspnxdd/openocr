@@ -1,9 +1,7 @@
 use anyhow::{Context, Result};
 use base64::Engine;
-use rig::{
-    client::CompletionClient,
-    completion::Prompt,
-    http_client::ReqwestClient,
+use rig_core::{
+    completion::{CompletionRequest, message::UserContent},
     message::{DocumentSourceKind, Image, ImageDetail, ImageMediaType},
     providers::openai,
 };
@@ -18,30 +16,24 @@ const TEMPERATURE: f64 = 0.5;
 pub async fn perform_ocr(url: &str, model: &str, png_bytes: &[u8]) -> Result<String> {
     let base64_str = base64::engine::general_purpose::STANDARD.encode(png_bytes);
 
-    let client = openai::CompletionsClient::<ReqwestClient>::builder()
-        .api_key("")
-        .base_url(url)
-        .build()
-        .context("Failed to build OpenAI client")?;
-
-    let agent = client
-        .agent(model)
-        .preamble(PREAMBLE)
-        .temperature(TEMPERATURE)
-        .build();
+    let client = openai::OpenAIConfig::new("").with_base_url(url).client();
 
     let image = Image {
         data: DocumentSourceKind::base64(&base64_str),
         media_type: Some(ImageMediaType::PNG),
         detail: Some(ImageDetail::Auto),
-        additional_params: None,
         ..Default::default()
     };
 
-    let response = agent
-        .prompt(image)
+    let response = client
+        .chat(model)
+        .call(
+            CompletionRequest::new(UserContent::Image(image))
+                .preamble(PREAMBLE)
+                .temperature(TEMPERATURE),
+        )
         .await
         .context("LLM prompt request failed")?;
 
-    Ok(response)
+    Ok(response.text())
 }
