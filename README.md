@@ -16,7 +16,7 @@ Built with [Freya](https://github.com/marc2332/freya), a native Rust GUI framewo
 
 ## Prerequisites
 
-- **Rust** (edition 2024) -- install via [rustup](https://rustup.rs/)
+- **Rust 1.97.1 or newer** (edition 2024) -- install via [rustup](https://rustup.rs/)
 - **LM Studio** running locally with a vision-capable model loaded (default: `allenai/olmocr-2-7b`)
 - **Linux** with X11 (screen capture uses `xcap`)
 

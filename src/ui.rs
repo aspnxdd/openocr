@@ -99,7 +99,7 @@ impl App for TextDisplayWindow {
                 if width < 10.0 || height < 10.0 {
                     return;
                 }
-                dbg!("Capturing monitor: {}", monitor.name());
+                dbg!("Capturing monitor: {}", monitor.name().unwrap_or_default());
 
                 let image = match monitor.capture_image() {
                     Ok(img) => img,
@@ -177,7 +177,7 @@ struct ResultWindow {
 
 impl Component for ResultWindow {
     fn render(&self) -> impl IntoElement {
-        use_init_theme(|| DARK_THEME);
+        use_init_theme(dark_theme);
 
         let mut displayed_bytes = use_state(|| self.img_bytes.read().clone());
         let mut displayed_text = use_state(|| self.text.read().clone());
@@ -289,7 +289,7 @@ impl Component for ResultWindow {
                             .background(colors::BG_HEADER)
                             .border(Border::new().width(1.0).fill(colors::BORDER_HEADER))
                             .child(
-                                svg(freya::icons::lucide::scan_text())
+                                SvgViewer::new(freya::icons::lucide::scan_text())
                                     .color(colors::ACCENT)
                                     .width(Size::px(22.0))
                                     .height(Size::px(22.0)),
@@ -383,10 +383,9 @@ impl Component for ResultWindow {
                                                         .font_size(15.0)
                                                         .color(colors::TEXT_BODY)
                                                         .child(
-                                                            SelectableText::new(
-                                                                displayed_text.read().clone(),
-                                                            )
-                                                            .into_element(),
+                                                            SelectableText::new()
+                                                                .span(displayed_text.read().clone())
+                                                                .into_element(),
                                                         ),
                                                 ),
                                             ),
@@ -436,7 +435,7 @@ impl Component for ResultWindow {
                                                             .spacing(8.0)
                                                             .center()
                                                             .child(
-                                                                svg(copy_icon)
+                                                                SvgViewer::new(copy_icon)
                                                                     .color(copy_color)
                                                                     .width(Size::px(16.0))
                                                                     .height(Size::px(16.0)),
@@ -483,7 +482,7 @@ fn section_header(icon: Bytes, title: &'static str) -> Rect {
         .cross_align(Alignment::Center)
         .spacing(8.0)
         .child(
-            svg(icon)
+            SvgViewer::new(icon)
                 .color(colors::ACCENT)
                 .width(Size::px(16.0))
                 .height(Size::px(16.0)),
