@@ -177,7 +177,12 @@ struct ResultWindow {
 
 impl Component for ResultWindow {
     fn render(&self) -> impl IntoElement {
-        use_init_theme(dark_theme);
+        use_init_theme(|| {
+            let mut theme = dark_theme();
+            // Keep our accent instead of inheriting the desktop's accent color.
+            theme.colors = DARK_COLORS;
+            theme
+        });
 
         let mut displayed_bytes = use_state(|| self.img_bytes.read().clone());
         let mut displayed_text = use_state(|| self.text.read().clone());
