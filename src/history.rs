@@ -8,7 +8,7 @@ pub struct ScreenshotData {
     pub response: String,
 }
 
-pub fn save_screenshot(image: &image::DynamicImage, response: &str) -> Result<()> {
+pub fn save_screenshot(png_bytes: &[u8], response: &str) -> Result<ScreenshotData> {
     let entry_id = uuid::Uuid::new_v4().to_string();
 
     let home = dirs::home_dir().context("Could not determine home directory")?;
@@ -36,7 +36,7 @@ pub fn save_screenshot(image: &image::DynamicImage, response: &str) -> Result<()
         serde_json::from_str::<Vec<ScreenshotData>>(&data).unwrap_or_default()
     };
 
-    history.insert(0, entry);
+    history.insert(0, entry.clone());
 
     std::fs::create_dir_all(
         db_path
@@ -50,8 +50,8 @@ pub fn save_screenshot(image: &image::DynamicImage, response: &str) -> Result<()
             .parent()
             .context("screenshot path has no parent directory")?,
     )?;
-    image.save(&screenshot_path_path_buf)?;
-    Ok(())
+    std::fs::write(&screenshot_path_path_buf, png_bytes)?;
+    Ok(entry)
 }
 
 pub fn get_history() -> Result<Vec<ScreenshotData>> {

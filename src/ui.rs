@@ -35,24 +35,51 @@ pub mod colors {
     pub const SELECTION: Color = Color::from_af32rgb(0.5, 255, 0, 0);
 }
 
+pub struct ScreenshotSession {
+    img_bytes: (Instant, Bytes),
+    text: String,
+    history: Vec<history::ScreenshotData>,
+    window_id: Option<freya::winit::window::WindowId>,
+}
+
+impl ScreenshotSession {
+    pub fn new() -> Self {
+        Self {
+            img_bytes: (Instant::now(), Bytes::new()),
+            text: String::new(),
+            history: history::get_history()
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|entry| std::path::Path::new(&entry.screenshot_path).exists())
+                .collect(),
+            window_id: None,
+        }
+    }
+
+    fn show_history(&mut self, entry: &history::ScreenshotData) -> std::io::Result<()> {
+        let bytes = std::fs::read(&entry.screenshot_path)?;
+        self.img_bytes = (Instant::now(), Bytes::from(bytes));
+        self.text = entry.response.clone();
+        Ok(())
+    }
+}
+
 pub struct TextDisplayWindow {
     pub model: Cow<'static, str>,
     pub url: Cow<'static, str>,
     pub display_screenshot: bool,
     pub monitor: Monitor,
+    pub session: State<ScreenshotSession>,
 }
 
 impl App for TextDisplayWindow {
     fn render(&self) -> impl IntoElement {
-        let mut img_bytes = use_state(|| (Instant::now(), Bytes::default()));
-        let mut text = use_state(String::new);
+        let mut session = self.session;
 
         let mut start = use_state(|| CursorPoint::new(0.0, 0.0));
         let mut end = use_state(|| CursorPoint::new(0.0, 0.0));
 
         let mut should_capture = use_state(|| false);
-
-        let mut is_opened = use_state(|| false);
 
         let width = (end.read().x - start.read().x).abs() as f32;
         let height = (end.read().y - start.read().y).abs() as f32;
@@ -64,21 +91,6 @@ impl App for TextDisplayWindow {
 
         let x = start.read().x.min(end.read().x);
         let y = start.read().y.min(end.read().y);
-
-        let on_open = move |_| {
-            if *is_opened.read() {
-                return;
-            }
-            spawn(async move {
-                Platform::get()
-                    .launch_window(
-                        WindowConfig::new(move || ResultWindow { img_bytes, text })
-                            .with_title("OpenOCR"),
-                    )
-                    .await;
-                is_opened.set(true);
-            });
-        };
 
         rect()
             .expanded()
@@ -132,21 +144,42 @@ impl App for TextDisplayWindow {
                     let result: anyhow::Result<()> = async {
                         let response = crate::ocr::perform_ocr(&url, &model, &bytes).await?;
 
-                        let img = image::load_from_memory(&bytes)
-                            .map_err(|e| anyhow::anyhow!("Failed to load cropped image: {e}"))?;
-
-                        if let Err(e) = history::save_screenshot(&img, &response) {
-                            eprintln!("Failed to save screenshot: {e:?}");
-                        }
-
                         dbg!("Response: {:#?}", &response);
 
-                        text.set(response);
-
-                        if display_screenshot {
-                            img_bytes.set((Instant::now(), Bytes::from(bytes)));
+                        {
+                            let mut session = session.write();
+                            match history::save_screenshot(&bytes, &response) {
+                                Ok(entry) => session.history.insert(0, entry),
+                                Err(e) => eprintln!("Failed to save screenshot: {e:?}"),
+                            }
+                            session.img_bytes = (
+                                Instant::now(),
+                                if display_screenshot {
+                                    Bytes::from(bytes)
+                                } else {
+                                    Bytes::new()
+                                },
+                            );
+                            session.text = response;
                         }
-                        on_open(());
+
+                        // Keep lookup and focus/create together so closing the window cannot race us.
+                        Platform::get()
+                            .post_callback(move |_, renderer| {
+                                let window_id = session.peek().window_id;
+                                if let Some(window) =
+                                    window_id.and_then(|id| renderer.windows.get_mut(&id))
+                                {
+                                    window.window().focus_window();
+                                } else {
+                                    let window_id = renderer.launch_window(
+                                        WindowConfig::new(move || ResultWindow { session })
+                                            .with_title("OpenOCR"),
+                                    );
+                                    session.write().window_id = Some(window_id);
+                                }
+                            })
+                            .await?;
                         Ok(())
                     }
                     .await;
@@ -171,8 +204,7 @@ impl App for TextDisplayWindow {
 
 #[derive(PartialEq)]
 struct ResultWindow {
-    img_bytes: State<(Instant, Bytes)>,
-    text: State<String>,
+    session: State<ScreenshotSession>,
 }
 
 impl Component for ResultWindow {
@@ -184,24 +216,15 @@ impl Component for ResultWindow {
             theme
         });
 
-        let mut displayed_bytes = use_state(|| self.img_bytes.read().clone());
-        let mut displayed_text = use_state(|| self.text.read().clone());
-        let mut copied = use_state(|| false);
+        let mut session = self.session;
+        let displayed_bytes = session.read().img_bytes.clone();
+        let displayed_text = session.read().text.clone();
+        let capture_id = displayed_bytes.0;
+        let mut copied = use_state(|| None::<Instant>);
 
-        let mut filtered_history = use_state::<Vec<history::ScreenshotData>>(Vec::new);
-        use_hook(move || {
-            let history = history::get_history()
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|e| std::path::Path::new(&e.screenshot_path).exists())
-                .collect::<Vec<_>>();
-            dbg!("history: {:#?}", &history);
-            filtered_history.set(history);
-        });
+        let len = session.read().history.len();
 
-        let len = filtered_history.read().len();
-
-        let is_copied = *copied.read();
+        let is_copied = *copied.read() == Some(capture_id);
         let copy_icon = if is_copied {
             freya::icons::lucide::check()
         } else {
@@ -239,33 +262,25 @@ impl Component for ResultWindow {
                             .spacing(8.0)
                             .child(
                                 VirtualScrollView::new(move |i, _| {
-                                    let history = filtered_history.read();
-                                    let entry = history[i].clone();
+                                    let entry = session.read().history[i].clone();
                                     let path_buf = PathBuf::from(&entry.screenshot_path);
-                                    rect()
-                                        .key(i)
+                                    Button::new()
+                                        .key(entry.screenshot_path.clone())
+                                        .width(Size::Fill)
+                                        .height(Size::px(50.0))
+                                        .on_press(move |_| {
+                                            if let Err(e) = session.write().show_history(&entry) {
+                                                eprintln!("Failed to load screenshot: {e:?}");
+                                            }
+                                        })
                                         .child(
-                                            Button::new()
-                                                .on_press(move |_| {
-                                                    displayed_text.set(entry.response.clone());
-                                                    displayed_bytes.set((
-                                                        Instant::now(),
-                                                        Bytes::from(
-                                                            std::fs::read(&entry.screenshot_path)
-                                                                .unwrap_or_default(),
-                                                        ),
-                                                    ));
-                                                })
+                                            rect()
+                                                .margin(Gaps::new(4.0, 0.0, 4.0, 0.0))
+                                                .width(Size::Fill)
+                                                .height(Size::Fill)
                                                 .child(
-                                                    rect()
-                                                        .margin(Gaps::new(4.0, 0.0, 4.0, 0.0))
-                                                        .width(Size::Fill)
-                                                        .child(
-                                                            ImageViewer::new(ImageSource::Path(
-                                                                path_buf,
-                                                            ))
-                                                            .sampling_mode(SamplingMode::Trilinear),
-                                                        ),
+                                                    ImageViewer::new(ImageSource::Path(path_buf))
+                                                        .sampling_mode(SamplingMode::Trilinear),
                                                 ),
                                         )
                                         .into()
@@ -352,7 +367,7 @@ impl Component for ResultWindow {
                                             .center()
                                             .padding(8.0)
                                             .child(
-                                                ImageViewer::new(displayed_bytes.read().clone())
+                                                ImageViewer::new(displayed_bytes)
                                                     .sampling_mode(SamplingMode::Trilinear),
                                             ),
                                     ),
@@ -389,7 +404,7 @@ impl Component for ResultWindow {
                                                         .color(colors::TEXT_BODY)
                                                         .child(
                                                             SelectableText::new()
-                                                                .span(displayed_text.read().clone())
+                                                                .span(displayed_text)
                                                                 .into_element(),
                                                         ),
                                                 ),
@@ -413,14 +428,14 @@ impl Component for ResultWindow {
                                                 Button::new()
                                                     .on_press(move |_| {
                                                         if let Err(e) = Clipboard::set(
-                                                            displayed_text.read().clone(),
+                                                            session.peek().text.clone(),
                                                         ) {
                                                             eprintln!(
                                                                 "Failed to copy to clipboard: {:?}",
                                                                 e
                                                             );
                                                         } else {
-                                                            copied.set(true);
+                                                            copied.set(Some(capture_id));
                                                             spawn(async move {
                                                                 tokio::time::sleep(
                                                                     std::time::Duration::from_secs(
@@ -428,7 +443,11 @@ impl Component for ResultWindow {
                                                                     ),
                                                                 )
                                                                 .await;
-                                                                copied.set(false);
+                                                                if *copied.peek()
+                                                                    == Some(capture_id)
+                                                                {
+                                                                    copied.set(None);
+                                                                }
                                                             });
                                                         }
                                                     })

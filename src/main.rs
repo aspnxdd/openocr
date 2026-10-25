@@ -1,7 +1,7 @@
 use clap::Parser;
 use freya::prelude::*;
 use freya::winit;
-use ui::TextDisplayWindow;
+use ui::{ScreenshotSession, TextDisplayWindow};
 
 mod history;
 mod ocr;
@@ -49,6 +49,7 @@ fn main() {
 
     let xcap_monitors = xcap::Monitor::all().unwrap();
     let mut launch_config = LaunchConfig::new();
+    let session = State::create_global(ScreenshotSession::new());
 
     for (i, monitor) in xcap_monitors.into_iter().enumerate() {
         launch_config = launch_config.with_window(
@@ -57,6 +58,7 @@ fn main() {
                 model: model.clone().into(),
                 url: url.clone().into(),
                 monitor: monitor.clone(),
+                session,
             })
             .with_title("OpenOCR")
             .with_transparency(true)
