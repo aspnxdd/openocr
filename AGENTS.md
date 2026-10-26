@@ -27,21 +27,21 @@ src/
 
 ### `ui.rs` (GUI)
 
-- **`colors` module**: Tailwind CSS v4-based color palette constants (backgrounds, borders, text, accents)
-- **`ExpandedXY` trait**: Layout helper for expanding width/height on `Rect` and `Label` elements
-- **`TextDisplayWindow`** struct holds config: `model`, `url`, `display_screenshot`, `monitor`
-  - Implements `freya::prelude::App` trait; the `render()` method returns the overlay element tree
-  - **State hooks** (React-like): `use_state()` for cursor positions (`start`, `end`), `should_capture`, `is_opened`, `img_bytes`, `text`
-  - **Overlay**: Semi-transparent dark rect covering the full screen
-  - **Selection**: Red semi-transparent rectangle drawn between mouse-down and mouse-up positions
-  - **Capture flow** (on mouse-up, if region > 10x10 px): captures monitor, crops to selection, encodes as PNG, calls `ocr::perform_ocr()`, saves via `history::save_screenshot()`
-- **`result_window`** function launched via `Platform::get().launch_window()`:
-  - Sidebar with scrollable history thumbnails
-  - `ImageViewer` showing the screenshot
-  - Selectable text area with extracted text
-  - Copy-to-clipboard button with feedback
-- **Reusable helpers**: `section_header()` (icon + label, used by both panels) and `panel_shadow()` (shared shadow style)
-- **ESC key** exits the application via `std::process::exit(0)`
+- **`colors` module**: Light neutral surfaces, indigo accents, and semantic status colors
+- **`ScreenshotSession`**: Shared global `State` for captures, history, selected entry, screenshot visibility, processing status, errors, and result-window identity
+- **`TextDisplayWindow`**: `App` implementation holding `model`, `url`, `monitor`, and the shared session
+  - Local `use_state()` hooks track drag endpoints and whether a selection is active
+  - Guided translucent overlay with an unobstructed indigo selection, reading feedback, and errors
+  - Before capture, all overlays paint transparent; `capture_bounds()` converts logical coordinates to image pixels and clips them to the monitor
+  - Calls `ocr::perform_ocr()`, saves history, then focuses or creates one result window via a renderer callback
+- **`ResultWindow`**: Stateful `Component` using a customized light Freya theme
+  - Keyed, virtualized history cards with thumbnails, text previews, timestamps, and selection styling
+  - Source and text cards arranged side by side, stacked below 1050 logical pixels
+  - Screenshot visibility is respected for fresh captures and history entries
+  - Selectable text, word/character counts, and copy-to-clipboard feedback
+- **Reusable helpers**: `icon()`, `badge()`, `panel()`, and `panel_header()`
+- **ESC key** requests graceful event-loop exit
+- **Tests**: `freya-testing` exercises wide/compact/text-only layouts and history loading; pure tests cover coordinate conversion and relative timestamps. Preview images are written to `target/workspace-*.png`.
 
 ### `ocr.rs` (LLM interaction)
 
@@ -68,7 +68,7 @@ CLI args -> enumerate monitors -> create fullscreen overlay per monitor
 
 | Crate       | Purpose                                                                          |
 | ----------- | -------------------------------------------------------------------------------- |
-| `freya`     | GUI framework (Skia + winit). Pinned to a specific git rev                      |
+| `freya`     | GUI framework (Skia + winit), pinned exactly to `0.5.0-rc.13`                     |
 | `xcap`      | Cross-platform screen capture and monitor enumeration                            |
 | `rig-core`  | LLM client framework; used for the OpenAI-compatible API call                    |
 | `image`     | Image cropping (crop captured screenshot to selected region)                     |
@@ -77,7 +77,7 @@ CLI args -> enumerate monitors -> create fullscreen overlay per monitor
 | `tokio`     | Async runtime for spawning OCR API calls                                         |
 | `reqwest`   | HTTP client (used by rig-core under the hood)                                    |
 | `winit`     | Window management (re-exported through Freya, also used directly for fullscreen) |
-| `ollama-rs` | **Unused** -- legacy dependency, not imported anywhere in the code               |
+| `freya-testing` | Development-only headless layout, interaction, and rendering tests          |
 
 ## Defaults
 
@@ -99,21 +99,24 @@ cargo run --release
 # Run with custom model and URL
 cargo run --release -- --model "my-model" --url "http://localhost:8080/v1"
 
+# Test, including headless UI previews
+cargo test --locked
+
 # Format code
 just f
 ```
 
 ## Known Issues and Quirks
 
-- **Freya is pinned to a specific git rev** (`f33c70c`), not a released version. This may break if the upstream repo changes.
-- **`ollama-rs`** is listed in `Cargo.toml` but is not used in any source file. It is a leftover from earlier development.
-- **No tests** exist in the project.
-- **`std::process::exit(0)`** is used for ESC key handling -- this is abrupt and skips any cleanup.
-- **Error handling** uses `.unwrap()` in several places (monitor capture, image encoding, API client building, API response).
-- **Tracing** setup is commented out in `main.rs`.
+- **Freya is a prerelease**: keep `Cargo.lock` checked in and use `--locked` for reproducible builds.
+- **Skia build dependencies**: `bindgen 0.73.2` needs the locked `prettyplease 0.3.0` to match its `syn 3` AST types.
+- **Flex layout**: rows using `Size::flex()` children need `Content::Flex`; `.expanded()` sets `Size::Fill` on both axes, not flex:1.
+- **Hardware validation**: headless tests do not exercise real monitor capture, desktop clipboard permissions, or an actual OCR server.
+- **Monitor setup** still uses `.unwrap()` during enumeration and fullscreen-window configuration.
 
 ## Conventions
 
+- **UI copy**: Keep text concise, factual, and functional (labels, statuses, errors, and actionable instructions). Do not add marketing slogans, motivational taglines, filler sentences, or promotional helper cards. Use layout and styling—not marketing copy—to make the app feel modern.
 - **Rust edition 2024**
 - **No doc comments** (`///`) on public items currently
 - **Freya element builder pattern**: UI is built with chained method calls on element builders (`rect().padding().spacing().child(...)`)

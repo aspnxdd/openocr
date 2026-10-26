@@ -49,12 +49,11 @@ fn main() {
 
     let xcap_monitors = xcap::Monitor::all().unwrap();
     let mut launch_config = LaunchConfig::new();
-    let session = State::create_global(ScreenshotSession::new());
+    let session = State::create_global(ScreenshotSession::new(display_screenshot));
 
     for (i, monitor) in xcap_monitors.into_iter().enumerate() {
         launch_config = launch_config.with_window(
             WindowConfig::new_app(TextDisplayWindow {
-                display_screenshot,
                 model: model.clone().into(),
                 url: url.clone().into(),
                 monitor: monitor.clone(),

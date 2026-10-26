@@ -2,9 +2,19 @@
 
 A lightweight desktop OCR tool built with Rust. Select any region of your screen, and openocr captures it, sends it to a local LLM via [LM Studio](https://lmstudio.ai/), and returns the extracted text -- all running locally on your machine.
 
-Built with [Freya](https://github.com/marc2332/freya), a native Rust GUI framework powered by Skia and winit.
+Built with [Freya 0.5.0-rc.13](https://github.com/marc2332/freya), a native Rust GUI framework powered by Skia and winit.
 
-![demo](demo.png)
+![OpenOCR's light workspace with capture history, source image, and extracted text](demo.png)
+
+## Workspace
+
+- Light surfaces, indigo accents, and readable typography
+- A capture library with thumbnails, text previews, relative timestamps, and an active selection
+- Side-by-side source and text cards that stack in smaller windows
+- Selectable text, one-click copying with confirmation, and word/character counts
+- A guided capture overlay with an unobstructed selection, reading status, and visible errors
+
+Screenshots and history stay in `~/.openocr/`. Images are sent to the API endpoint you configure, which defaults to local LM Studio.
 
 ## How It Works
 
@@ -76,7 +86,15 @@ cargo build
 
 # Run in debug mode
 cargo run
+
+# Headless UI, history-interaction, and capture-coordinate tests
+cargo test --locked
+
+# Check the optional developer-tools integration
+cargo check --locked --features devtools
 ```
+
+UI tests render wide, compact, and text-only previews to `target/workspace-*.png` without launching a desktop window. The `--display-screenshot false` option also hides source images when browsing history.
 
 ## License
 
