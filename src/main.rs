@@ -1,3 +1,5 @@
+use std::{num::NonZeroU64, time::Duration};
+
 use clap::Parser;
 use freya::prelude::*;
 use freya::winit;
@@ -21,16 +23,23 @@ struct Args {
     /// Whether to display the captured screenshot in the result window (default: true)
     #[arg(short, long, default_value_t = true, action = clap::ArgAction::Set)]
     display_screenshot: bool,
+
+    #[arg(
+        long,
+        default_value = "120",
+        value_name = "SECONDS",
+        help = "Maximum time to wait for an OCR response (must be greater than zero)"
+    )]
+    timeout: NonZeroU64,
 }
 
 fn main() {
+    let args = Args::parse();
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .expect("Failed to build Tokio runtime");
     let _guard = rt.enter();
-
-    let args = Args::parse();
 
     let url = args
         .url
@@ -57,6 +66,7 @@ fn main() {
                 model: model.clone().into(),
                 url: url.clone().into(),
                 monitor: monitor.clone(),
+                timeout: Duration::from_secs(args.timeout.get()),
                 session,
             })
             .with_title("OpenOCR")
@@ -75,4 +85,16 @@ fn main() {
     }
 
     launch(launch_config);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cli_rejects_invalid_timeouts() {
+        for timeout in ["0", "-1", "abc"] {
+            assert!(Args::try_parse_from(["openocr", "--timeout", timeout]).is_err());
+        }
+    }
 }

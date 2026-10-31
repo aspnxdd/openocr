@@ -76,12 +76,23 @@ impl ScreenshotSession {
         self.error = None;
         Ok(())
     }
+
+    fn finish_capture(&mut self, result: anyhow::Result<()>) {
+        self.status = CaptureStatus::Idle;
+        if let Err(error) = result {
+            eprintln!("OCR capture failed: {error:?}");
+            self.error = Some(format!(
+                "Could not extract text. Check your OCR server and try again. {error:#}"
+            ));
+        }
+    }
 }
 
 pub struct TextDisplayWindow {
     pub model: Cow<'static, str>,
     pub url: Cow<'static, str>,
     pub monitor: Monitor,
+    pub timeout: Duration,
     pub session: State<ScreenshotSession>,
 }
 
@@ -101,6 +112,7 @@ impl App for TextDisplayWindow {
         let url = self.url.clone();
         let model = self.model.clone();
         let monitor = self.monitor.clone();
+        let timeout = self.timeout;
 
         rect()
             .expanded()
@@ -161,7 +173,8 @@ impl App for TextDisplayWindow {
                         )?;
                         let bytes = Bytes::from(bytes);
                         session.write().status = CaptureStatus::Reading;
-                        let response = crate::ocr::perform_ocr(&url, &model, &bytes).await?;
+                        let response =
+                            crate::ocr::perform_ocr(&url, &model, &bytes, timeout).await?;
                         let saved = tokio::task::spawn_blocking({
                             let bytes = bytes.clone();
                             let response = response.clone();
@@ -219,13 +232,7 @@ impl App for TextDisplayWindow {
                     }
                     .await;
 
-                    session.write().status = CaptureStatus::Idle;
-                    if let Err(e) = result {
-                        eprintln!("OCR capture failed: {e:?}");
-                        session.write().error = Some(format!(
-                            "Could not extract text. Check your OCR server and try again. {e}"
-                        ));
-                    }
+                    session.write().finish_capture(result);
                 });
             })
             .maybe_child((status != CaptureStatus::Capturing).then(|| {
@@ -780,6 +787,30 @@ mod tests {
         let last = find_label(&runner, "Capture 29").layout().area.center();
         runner.click_cursor((last.x as f64, last.y as f64));
         assert_eq!(session.peek().text, "Capture 29");
+    }
+
+    #[test]
+    fn failed_capture_returns_to_idle_and_preserves_previous_text() {
+        for status in [CaptureStatus::Capturing, CaptureStatus::Reading] {
+            let mut session = fixture_session(false);
+            session.status = status;
+            let previous = session.text.clone();
+            session.finish_capture(Err(anyhow::anyhow!("OCR request timed out")));
+            assert!(session.status == CaptureStatus::Idle);
+            assert_eq!(session.text, previous);
+            assert!(
+                session
+                    .error
+                    .as_ref()
+                    .unwrap()
+                    .contains("OCR request timed out")
+            );
+            session.status = CaptureStatus::Reading;
+            session.error = None;
+            session.finish_capture(Ok(()));
+            assert!(session.status == CaptureStatus::Idle);
+            assert!(session.error.is_none());
+        }
     }
 
     #[test]
