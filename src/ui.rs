@@ -4,6 +4,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+use anyhow::Context;
 use freya::prelude::*;
 use xcap::Monitor;
 
@@ -158,11 +159,20 @@ impl App for TextDisplayWindow {
                             &mut std::io::Cursor::new(&mut bytes),
                             image::ImageFormat::Png,
                         )?;
+                        let bytes = Bytes::from(bytes);
                         session.write().status = CaptureStatus::Reading;
                         let response = crate::ocr::perform_ocr(&url, &model, &bytes).await?;
+                        let saved = tokio::task::spawn_blocking({
+                            let bytes = bytes.clone();
+                            let response = response.clone();
+                            move || history::save_screenshot(&bytes, &response)
+                        })
+                        .await
+                        .context("History save task failed")
+                        .and_then(|result| result);
                         {
                             let mut session = session.write();
-                            match history::save_screenshot(&bytes, &response) {
+                            match saved {
                                 Ok(entry) => {
                                     session.selected_path = Some(entry.screenshot_path.clone());
                                     session.history.insert(0, entry);
@@ -170,14 +180,14 @@ impl App for TextDisplayWindow {
                                 Err(e) => {
                                     session.selected_path = None;
                                     session.error = Some(format!(
-                                        "Text extracted, but history could not be saved: {e}"
+                                        "Text extracted, but history could not be saved: {e:#}"
                                     ));
                                 }
                             }
                             session.img_bytes = (
                                 Instant::now(),
                                 if session.display_screenshot {
-                                    Bytes::from(bytes)
+                                    bytes
                                 } else {
                                     Bytes::new()
                                 },
@@ -599,12 +609,12 @@ mod tests {
     }
 
     fn fixture_session(display_screenshot: bool) -> ScreenshotSession {
-        let source = concat!(env!("CARGO_MANIFEST_DIR"), "/selection.png");
+        let source = concat!(env!("CARGO_MANIFEST_DIR"), "/./demo.png");
         ScreenshotSession {
             img_bytes: (
                 Instant::now(),
                 if display_screenshot {
-                    Bytes::from_static(include_bytes!("../selection.png"))
+                    Bytes::from_static(include_bytes!("../demo.png"))
                 } else {
                     Bytes::new()
                 },
@@ -741,7 +751,7 @@ mod tests {
                     session.history = (0..30)
                         .map(|index| history::ScreenshotData {
                             screenshot_path: format!(
-                                "{}/{}selection.png",
+                                "{}/{}demo.png",
                                 env!("CARGO_MANIFEST_DIR"),
                                 "./".repeat(index)
                             ),
