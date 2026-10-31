@@ -16,6 +16,8 @@ Built with [Freya 0.5.0-rc.13](https://github.com/marc2332/freya), a native Rust
 
 Screenshots and history stay in `~/.openocr/`. Images are sent to the API endpoint you configure, which defaults to local LM Studio.
 
+Open previous captures with `openocr --history`, without taking a screenshot or contacting the OCR server. The newest saved capture is selected automatically. Saved text remains available if its source image has been deleted.
+
 ## How It Works
 
 1. **Launch** -- openocr creates a transparent fullscreen overlay on each connected monitor
@@ -54,6 +56,12 @@ cargo run --release -- --url "http://localhost:8080/v1"
 
 # Disable screenshot display in the result window
 cargo run --release -- --display-screenshot false
+
+# Browse saved captures without screen capture or an OCR server
+cargo run --release -- --history
+
+# Allow a slower local model up to five minutes per request
+cargo run --release -- --timeout 300
 ```
 
 ### CLI Options
@@ -63,6 +71,17 @@ cargo run --release -- --display-screenshot false
 | `--model`              | `-m`  | `allenai/olmocr-2-7b`      | LLM model name for OCR                            |
 | `--url`                | `-u`  | `http://localhost:1234/v1` | OpenAI-compatible API base URL                    |
 | `--display-screenshot` | `-d`  | `true`                     | Show the captured screenshot in the result window |
+| `--history`            |       | `false`                    | Open the saved capture library instead of capture overlays |
+| `--timeout`            |       | `120`                      | OCR request deadline in seconds; must be greater than zero |
+
+History mode opens only the workspace; launch without `--history` to take a new capture. It still requires a graphical desktop, but does not enumerate or capture monitors.
+
+### Reliability and recovery
+
+- Requests that exceed `--timeout` show an error and allow another selection. Increase the deadline for slow models; requests are not retried automatically.
+- History saves run off the UI thread, serialize writers with `~/.openocr/history.lock`, write the PNG first, then atomically replace the JSON index. Existing history is not overwritten if it cannot be read or parsed. New screenshots and index files are owner-only (`0600`) on Unix; existing screenshot permissions are not changed.
+- A history load or save failure is shown in the UI. Extracted text remains available for copying when saving fails. If `history.json` is corrupt, back it up before repairing it; the app does not automatically reset it.
+- Atomic replacement protects against partial index writes, not every power-loss scenario. An interrupted save can leave an unlisted image in `~/.openocr/screenshots/`.
 
 ## Key Dependencies
 
@@ -87,14 +106,14 @@ cargo build
 # Run in debug mode
 cargo run
 
-# Headless UI, history-interaction, and capture-coordinate tests
+# Filesystem, mock OCR server, CLI, and headless UI tests
 cargo test --locked
 
 # Check the optional developer-tools integration
 cargo check --locked --features devtools
 ```
 
-UI tests render wide, compact, and text-only previews to `target/workspace-*.png` without launching a desktop window. The `--display-screenshot false` option also hides source images when browsing history.
+UI tests render wide, compact, and text-only previews to `target/workspace-*.png` without launching a desktop window. The `--display-screenshot false` option also hides source images when browsing history. Persistence tests use isolated temporary directories, and OCR tests use a local mock server; neither touches your saved history nor requires LM Studio.
 
 ## License
 

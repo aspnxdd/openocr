@@ -26,6 +26,12 @@ struct Args {
 
     #[arg(
         long,
+        help = "Open saved captures without starting screen capture or contacting the OCR server"
+    )]
+    history: bool,
+
+    #[arg(
+        long,
         default_value = "120",
         value_name = "SECONDS",
         help = "Maximum time to wait for an OCR response (must be greater than zero)"
@@ -40,6 +46,16 @@ fn main() {
         .build()
         .expect("Failed to build Tokio runtime");
     let _guard = rt.enter();
+
+    let mut session = State::create_global(ScreenshotSession::new(
+        args.display_screenshot,
+        history::get_history(),
+    ));
+    if args.history {
+        session.write().show_latest();
+        launch(LaunchConfig::new().with_window(ui::result_window(session)));
+        return;
+    }
 
     let url = args
         .url
@@ -58,8 +74,6 @@ fn main() {
 
     let xcap_monitors = xcap::Monitor::all().unwrap();
     let mut launch_config = LaunchConfig::new();
-    let session = State::create_global(ScreenshotSession::new(display_screenshot));
-
     for (i, monitor) in xcap_monitors.into_iter().enumerate() {
         launch_config = launch_config.with_window(
             WindowConfig::new_app(TextDisplayWindow {
@@ -90,6 +104,26 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cli_keeps_capture_defaults_and_supports_history_mode() {
+        let defaults = Args::try_parse_from(["openocr"]).unwrap();
+        assert!(!defaults.history);
+        assert!(defaults.display_screenshot);
+        assert_eq!(defaults.timeout.get(), 120);
+        let history = Args::try_parse_from([
+            "openocr",
+            "--history",
+            "--display-screenshot",
+            "false",
+            "--timeout",
+            "300",
+        ])
+        .unwrap();
+        assert!(history.history);
+        assert!(!history.display_screenshot);
+        assert_eq!(history.timeout.get(), 300);
+    }
 
     #[test]
     fn cli_rejects_invalid_timeouts() {

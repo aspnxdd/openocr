@@ -19,8 +19,9 @@ src/
 
 ### `main.rs` (entry point)
 
-- Parses CLI arguments via `clap` (`--model`, `--url`, `--display-screenshot`)
-- Enumerates all monitors via `xcap::Monitor::all()`
+- Parses CLI arguments via `clap` (`--model`, `--url`, `--display-screenshot`, `--timeout`, `--history`)
+- `--history` opens the existing workspace with the newest entry before monitor enumeration; no OCR server or capture is needed
+- Normal capture mode enumerates all monitors via `xcap::Monitor::all()`
 - Creates a transparent, decoration-less, fullscreen Freya window per monitor
 - Each window runs a `TextDisplayWindow` app instance
 - Launches the Freya event loop with `launch(launch_config)`
@@ -28,8 +29,9 @@ src/
 ### `ui.rs` (GUI)
 
 - **`colors` module**: Light neutral surfaces, indigo accents, and semantic status colors
-- **`ScreenshotSession`**: Shared global `State` for captures, history, selected entry, screenshot visibility, processing status, errors, and result-window identity
-- **`TextDisplayWindow`**: `App` implementation holding `model`, `url`, `monitor`, and the shared session
+- **`ScreenshotSession`**: Shared global `State` for captures, history, selected entry, screenshot visibility, processing status, errors, and result-window identity; takes the history-load result so errors remain visible, and keeps saved text accessible when source images are missing
+- **`result_window(session)`**: Shared workspace-window configuration for history startup and completed captures
+- **`TextDisplayWindow`**: `App` implementation holding `model`, `url`, `monitor`, request `timeout`, and the shared session
   - Local `use_state()` hooks track drag endpoints and whether a selection is active
   - Guided translucent overlay with an unobstructed indigo selection, reading feedback, and errors
   - Before capture, all overlays paint transparent; `capture_bounds()` converts logical coordinates to image pixels and clips them to the monitor
@@ -41,18 +43,20 @@ src/
   - Selectable text, word/character counts, and copy-to-clipboard feedback
 - **Reusable helpers**: `icon()`, `badge()`, `panel()`, and `panel_header()`
 - **ESC key** requests graceful event-loop exit
-- **Tests**: `freya-testing` exercises wide/compact/text-only layouts and history loading; pure tests cover coordinate conversion and relative timestamps. Preview images are written to `target/workspace-*.png`.
+- **Tests**: `freya-testing` exercises wide/compact/text-only layouts, missing source images, and empty/failed history startup; pure tests cover capture failure recovery, coordinate conversion, and relative timestamps. Preview images are written to `target/workspace-*.png`.
 
 ### `ocr.rs` (LLM interaction)
 
-- **`perform_ocr(url, model, png_bytes) -> Result<String>`**: async function that encodes the image as base64, builds an OpenAI-compatible client via `rig-core`, constructs an agent with a system preamble, sends the image prompt, and returns the extracted text
+- **`perform_ocr(url, model, png_bytes, timeout) -> Result<String>`**: async function that encodes the image as base64, builds an OpenAI-compatible client via `rig-core`, sends a Chat Completions request with a system preamble, and returns extracted text; the complete call has a Tokio deadline
 - Constants: `PREAMBLE`, `TEMPERATURE`
+- Local mock-server tests verify the image request, response text, HTTP errors, and stalled-request timeout
 
 ### `history.rs` (persistence)
 
 - **`ScreenshotData`** struct: serializable record with `screenshot_path`, `created_at`, `response`
-- **`save_screenshot(image, response)`**: saves the image as PNG to `~/.openocr/screenshots/` and appends an entry to `~/.openocr/history.json`
-- **`get_history()`**: reads and deserializes the history JSON file
+- **`save_screenshot(png_bytes, response)`**: called via `tokio::task::spawn_blocking` without a session guard; locks a separate `~/.openocr/history.lock`, writes and syncs the PNG to `~/.openocr/screenshots/`, then atomically replaces a synced JSON index with the new entry first; ordinary failures clean up owned files. New image/index files start with Unix mode `0600` (existing screenshots are unchanged)
+- **`get_history()`**: reads and deserializes history; only a missing file is an empty library, while read/parse failures are reported without resetting the file
+- Tests use private path-taking helpers and UUID temporary directories, never process-global `HOME` changes; cover round trips, failed writes, invalid history, and concurrent writers
 
 ## Application Flow
 
@@ -86,6 +90,8 @@ CLI args -> enumerate monitors -> create fullscreen overlay per monitor
 - **API key**: empty string (LM Studio does not require one)
 - **Temperature**: `0.5`
 - **Display screenshot**: `true`
+- **OCR timeout**: `120` seconds (positive integer; configurable with `--timeout`)
+- **History-only mode**: `false`
 
 ## Build and Run
 
@@ -111,7 +117,8 @@ just f
 - **Freya is a prerelease**: keep `Cargo.lock` checked in and use `--locked` for reproducible builds.
 - **Skia build dependencies**: `bindgen 0.73.2` needs the locked `prettyplease 0.3.0` to match its `syn 3` AST types.
 - **Flex layout**: rows using `Size::flex()` children need `Content::Flex`; `.expanded()` sets `Size::Fill` on both axes, not flex:1.
-- **Hardware validation**: headless tests do not exercise real monitor capture, desktop clipboard permissions, or an actual OCR server.
+- **Hardware validation**: headless tests do not exercise native window startup, real monitor capture, desktop clipboard permissions, or an actual OCR server.
+- **Persistence limits**: file syncing and atomic index replacement do not guarantee full power-loss durability; an interrupted save may leave an orphan PNG. Corrupt history must be backed up and repaired rather than silently reset.
 - **Monitor setup** still uses `.unwrap()` during enumeration and fullscreen-window configuration.
 
 ## Conventions

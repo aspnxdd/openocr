@@ -47,34 +47,47 @@ pub struct ScreenshotSession {
 }
 
 impl ScreenshotSession {
-    pub fn new(display_screenshot: bool) -> Self {
+    pub fn new(
+        display_screenshot: bool,
+        history: anyhow::Result<Vec<history::ScreenshotData>>,
+    ) -> Self {
+        let (history, error) = match history {
+            Ok(history) => (history, None),
+            Err(error) => (
+                Vec::new(),
+                Some(format!("Could not load capture history: {error:#}")),
+            ),
+        };
         Self {
             img_bytes: (Instant::now(), Bytes::new()),
             text: String::new(),
-            history: history::get_history()
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|entry| std::path::Path::new(&entry.screenshot_path).exists())
-                .collect(),
+            history,
             selected_path: None,
             display_screenshot,
             status: CaptureStatus::Idle,
-            error: None,
+            error,
             window_id: None,
         }
     }
 
-    fn show_history(&mut self, entry: &history::ScreenshotData) -> std::io::Result<()> {
+    pub fn show_latest(&mut self) {
+        if let Some(entry) = self.history.first().cloned() {
+            self.show_history(&entry);
+        }
+    }
+
+    fn show_history(&mut self, entry: &history::ScreenshotData) {
         let bytes = if self.display_screenshot {
-            Bytes::from(std::fs::read(&entry.screenshot_path)?)
+            std::fs::read(&entry.screenshot_path).map(Bytes::from)
         } else {
-            Bytes::new()
+            Ok(Bytes::new())
         };
-        self.img_bytes = (Instant::now(), bytes);
+        self.error = bytes.as_ref().err().map(|error| {
+            format!("Source image unavailable: {error}. Saved text is still available.")
+        });
+        self.img_bytes = (Instant::now(), bytes.unwrap_or_default());
         self.text = entry.response.clone();
         self.selected_path = Some(entry.screenshot_path.clone());
-        self.error = None;
-        Ok(())
     }
 
     fn finish_capture(&mut self, result: anyhow::Result<()>) {
@@ -217,13 +230,7 @@ impl App for TextDisplayWindow {
                                 {
                                     window.window().focus_window();
                                 } else {
-                                    let window_id = renderer.launch_window(
-                                        WindowConfig::new(move || ResultWindow { session })
-                                            .with_title("OpenOCR · Workspace")
-                                            .with_size(1180.0, 780.0)
-                                            .with_min_size(760.0, 600.0)
-                                            .with_background(colors::CANVAS),
-                                    );
+                                    let window_id = renderer.launch_window(result_window(session));
                                     session.write().window_id = Some(window_id);
                                 }
                             })
@@ -321,6 +328,14 @@ fn capture_bounds(
     (right > x && bottom > y).then_some((x, y, right - x, bottom - y))
 }
 
+pub fn result_window(session: State<ScreenshotSession>) -> WindowConfig {
+    WindowConfig::new(move || ResultWindow { session })
+        .with_title("OpenOCR · Workspace")
+        .with_size(1180.0, 780.0)
+        .with_min_size(760.0, 600.0)
+        .with_background(colors::CANVAS)
+}
+
 #[derive(PartialEq)]
 struct ResultWindow {
     session: State<ScreenshotSession>,
@@ -356,6 +371,8 @@ impl Component for ResultWindow {
         let compact = Platform::get().current_window().root_size.read().width < 1050.0;
         let len = session.read().history.len();
         let error = session.read().error.clone();
+        let saved = session.read().selected_path.is_some();
+        let empty_library = len == 0 && displayed_text.is_empty() && !has_image;
         // Prioritize readable text and recovery when a compact workspace needs an error banner.
         let show_source = has_image && (!compact || error.is_none());
         let words = displayed_text.split_whitespace().count();
@@ -413,18 +430,14 @@ impl Component for ResultWindow {
                                 .background(if active { colors::ACCENT_SOFT } else { colors::SURFACE })
                                 .border_fill(if active { colors::ACCENT_SOFT } else { colors::SURFACE })
                                 .hover_background(colors::CANVAS)
-                                .on_press(move |_| {
-                                    let result = session.write().show_history(&entry);
-                                    if let Err(e) = result {
-                                        session.write().error = Some(format!("Could not open this capture: {e}"));
-                                    }
-                                })
+                                .on_press(move |_| session.write().show_history(&entry))
                                 .child(
                                     rect().width(Size::Fill).horizontal().content(Content::Flex).spacing(10.0).cross_align(Alignment::Center)
                                         .child(rect().width(Size::px(42.0)).height(Size::px(52.0)).padding(4.0)
                                             .corner_radius(7.0).background(colors::SURFACE).overflow(Overflow::Clip)
                                             .child(ImageViewer::new(ImageSource::Path(path)).width(Size::Fill).height(Size::Fill)
-                                                .sampling_mode(SamplingMode::Trilinear)))
+                                                .sampling_mode(SamplingMode::Trilinear)
+                                                .error_renderer(|_| icon(freya::icons::lucide::image_off(), colors::MUTED, 18.0).into())))
                                         .child(rect().width(Size::flex(1.0)).spacing(6.0)
                                             .child(label().text(preview).font_size(12.0).font_weight(FontWeight::MEDIUM)
                                                 .max_lines(2).text_overflow(TextOverflow::Ellipsis)
@@ -507,7 +520,7 @@ impl Component for ResultWindow {
                                             .child(rect().width(Size::Fill).padding(if compact { 20.0 } else { 28.0 })
                                                 .child(SelectableText::new().key(capture_id).width(Size::Fill).font_size(15.0).line_height(1.65)
                                                     .color(if displayed_text.is_empty() { colors::MUTED } else { colors::INK })
-                                                    .span(if displayed_text.is_empty() { "No text was found in this capture. Try selecting a clearer region.".to_string() } else { displayed_text })))
+                                                    .span(if empty_library { "No saved captures. Launch openocr without --history to capture text.".to_string() } else if displayed_text.is_empty() { "No text was found in this capture. Try selecting a clearer region.".to_string() } else { displayed_text })))
                                     )
                                     .child(rect().width(Size::Fill).padding(Gaps::new(14.0, 20.0, 14.0, 20.0)).horizontal().spacing(8.0)
                                         .border(Border::new().width(1.0).fill(colors::BORDER))
@@ -520,7 +533,7 @@ impl Component for ResultWindow {
                         rect().width(Size::Fill).horizontal().content(Content::Flex).cross_align(Alignment::Center)
                             .child(rect().width(Size::flex(1.0)).horizontal().spacing(7.0).cross_align(Alignment::Center)
                                 .child(icon(freya::icons::lucide::hard_drive(), colors::MUTED, 13.0))
-                                .child(label().text("Saved on your device.").font_size(11.0).color(colors::MUTED)))
+                                .child(label().text(if saved { "Saved on your device." } else if empty_library { "History stored on your device." } else { "Not saved to history." }).font_size(11.0).color(colors::MUTED)))
                     )
             )
     }
@@ -710,9 +723,17 @@ mod tests {
                         .peek()
                         .error
                         .as_ref()
-                        .is_some_and(|e| e.starts_with("Could not open this capture:"))
+                        .is_some_and(|e| e.starts_with("Source image unavailable:"))
                 );
-                assert_eq!(session.peek().text, "A second capture, ready to copy.");
+                assert_eq!(
+                    session.peek().text,
+                    "let mut should_capture: State<bool> = use_state(|| false);"
+                );
+                assert!(session.peek().img_bytes.1.is_empty());
+                assert_eq!(
+                    session.peek().selected_path.as_deref(),
+                    Some("/missing/openocr-test.png")
+                );
                 let paragraph = runner
                     .find(|node, element| {
                         (element as &dyn std::any::Any)
@@ -721,16 +742,16 @@ mod tests {
                                 paragraph
                                     .spans
                                     .iter()
-                                    .any(|span| span.text == "A second capture, ready to copy.")
+                                    .any(|span| span.text == "let mut should_capture: State<bool> = use_state(|| false);")
                             })
                             .map(|_| node)
                     })
-                    .expect("Previous text should remain readable after a history error");
+                    .expect("Saved text should remain readable without its source image");
                 let area = paragraph.layout().area;
                 assert!(
                     area.min_y() >= 0.0
-                        && area.max_y() <= find_label(&runner, "6 words").layout().area.min_y(),
-                    "{name}: error clipped the preserved text: {area:?}"
+                        && area.max_y() <= find_label(&runner, "7 words").layout().area.min_y(),
+                    "{name}: warning clipped the saved text: {area:?}"
                 );
                 runner.render_to_file(format!("target/workspace-{name}-error.png"));
             } else {
@@ -787,6 +808,70 @@ mod tests {
         let last = find_label(&runner, "Capture 29").layout().area.center();
         runner.click_cursor((last.x as f64, last.y as f64));
         assert_eq!(session.peek().text, "Capture 29");
+    }
+
+    #[test]
+    fn history_launch_selects_newest_even_without_source_image() {
+        let mut history = fixture_session(true).history;
+        history[0].screenshot_path = "/missing/openocr-test.png".to_string();
+        for display_screenshot in [true, false] {
+            let mut session = ScreenshotSession::new(display_screenshot, Ok(history.clone()));
+            assert_eq!(session.history.len(), 2);
+            session.show_latest();
+            assert_eq!(session.text, history[0].response);
+            assert_eq!(
+                session.selected_path.as_ref(),
+                Some(&history[0].screenshot_path)
+            );
+            assert!(session.img_bytes.1.is_empty());
+            assert_eq!(session.error.is_some(), display_screenshot);
+        }
+    }
+
+    #[test]
+    fn empty_and_failed_history_loads_render_without_an_ocr_result() {
+        for failure in [false, true] {
+            let (mut runner, session) = freya_testing::TestingRunner::new(
+                workspace,
+                (760.0, 600.0).into(),
+                |r| {
+                    r.provide_root_context(|| {
+                        let history = if failure {
+                            Err(anyhow::anyhow!("broken index"))
+                        } else {
+                            Ok(Vec::new())
+                        };
+                        let mut session = ScreenshotSession::new(true, history);
+                        session.show_latest();
+                        State::create(session)
+                    })
+                },
+                1.0,
+            );
+            runner.sync_and_update();
+            assert!(session.peek().text.is_empty());
+            assert!(session.peek().selected_path.is_none());
+            find_label(&runner, "No captures yet.");
+            let paragraph = runner
+                .find(|node, element| {
+                    (element as &dyn std::any::Any)
+                        .downcast_ref::<freya::elements::paragraph::ParagraphElement>()
+                        .filter(|paragraph| {
+                            paragraph
+                                .spans
+                                .iter()
+                                .any(|span| span.text.starts_with("No saved captures."))
+                        })
+                        .map(|_| node)
+                })
+                .expect("An empty library must not be described as an empty OCR response");
+            assert!(paragraph.layout().area.height() > 0.0);
+            if failure {
+                find_label(&runner, "Could not load capture history: broken index");
+            } else {
+                assert!(session.peek().error.is_none());
+            }
+        }
     }
 
     #[test]
