@@ -72,7 +72,7 @@ CLI args -> enumerate monitors -> create fullscreen overlay per monitor
 
 | Crate       | Purpose                                                                          |
 | ----------- | -------------------------------------------------------------------------------- |
-| `freya`     | GUI framework (Skia + winit), pinned exactly to `0.5.0-rc.13`                     |
+| `freya`     | GUI framework (Skia + winit), pinned exactly to `0.5.0`                           |
 | `xcap`      | Cross-platform screen capture and monitor enumeration                            |
 | `rig-core`  | LLM client framework; used for the OpenAI-compatible API call                    |
 | `image`     | Image cropping (crop captured screenshot to selected region)                     |
@@ -114,7 +114,7 @@ just f
 
 ## Known Issues and Quirks
 
-- **Freya is a prerelease**: keep `Cargo.lock` checked in and use `--locked` for reproducible builds.
+- **Freya versioning**: keep `Cargo.lock` checked in and use `--locked` for reproducible builds.
 - **Skia build dependencies**: `bindgen 0.73.2` needs the locked `prettyplease 0.3.0` to match its `syn 3` AST types.
 - **Flex layout**: rows using `Size::flex()` children need `Content::Flex`; `.expanded()` sets `Size::Fill` on both axes, not flex:1.
 - **Hardware validation**: headless tests do not exercise native window startup, real monitor capture, desktop clipboard permissions, or an actual OCR server.
